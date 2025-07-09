@@ -6,6 +6,8 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 from functools import wraps
 from datetime import datetime
+# === ফিক্স এখানে: প্রয়োজনীয় ইম্পোর্ট যোগ করা হয়েছে ===
+from jinja2 import Environment, BaseLoader, TemplateNotFound
 
 # ======================================================================
 # --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য ---
@@ -15,7 +17,6 @@ BOT_TOKEN = "7931162174:AAGK8aSdqoYpZ4bsSXp36dp6zbVnYeenowA"
 TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
 ADMIN_CHANNEL_ID = "-1002853936940"
 BOT_USERNAME = "CTGVideoPlayerBot"
-# --- অ্যাডমিন প্যানেলের তথ্য ---
 ADMIN_USER = "Nahid270"
 ADMIN_PASS = "Nahid270"
 # ======================================================================
@@ -29,18 +30,13 @@ try:
     client = MongoClient(MONGO_URI)
     db = client["movie_db"]
     content_collection = db["content"]
-    settings_collection = db["settings"]
-    feedback_collection = db["feedback"]
     client.admin.command('ping')
     print("SUCCESS: MongoDB Connected Successfully!")
 except Exception as e:
     print(f"FATAL: Could not connect to MongoDB. Error: {e}")
     content_collection = None
-    settings_collection = None
-    feedback_collection = None
 
-# --- আপনার ডিজাইন থেকে আনা টেমপ্লেট ও CSS ---
-# (আমাদের সিস্টেমের সাথে ইন্টিগ্রেট করা)
+# --- HTML এবং CSS টেমপ্লেট ---
 INDEX_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -73,7 +69,7 @@ INDEX_HTML = """
               <h1 class="hero-title">{{ content.title }}</h1>
               <p class="hero-overview">{{ content.description }}</p>
               <div class="hero-buttons">
-                 <a href="{{ url_for('content_detail', content_id=content._id) }}" class="btn btn-primary"><i class="fas fa-play"></i> View Details</a>
+                 <a href="{{ url_for('content_detail', content_id=content._id) }}" class="btn btn-primary"><i class="fas fa-info-circle"></i> View Details</a>
               </div>
             </div>
           </div>
@@ -178,7 +174,7 @@ ADMIN_LOGIN_HTML = """
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}
 {% endwith %}
-<form method="post" class="admin-form">
+<form method="post" action="{{ url_for('admin_login_page') }}" class="admin-form">
     <div class="form-group"><label for="username">Username</label><input type="text" name="username" required></div>
     <div class="form-group"><label for="password">Password</label><input type="password" name="password" required></div>
     <button type="submit">Login</button>
@@ -199,9 +195,6 @@ ADMIN_DASHBOARD_HTML = """
     <div class="form-group"><label>Title (e.g., Jawan or Mirzapur S01E01):</label><input type="text" name="title" required /></div>
     <div class="form-group"><label>Quality (e.g., 720p):</label><input type="text" name="quality" required /></div>
     <div class="form-group"><label>Telegram Message ID:</label><input type="text" name="message_id" required /></div>
-    <p>Leave details below blank to auto-fetch from TMDb.</p>
-    <div class="form-group"><label>Poster URL:</label><input type="url" name="poster_url" /></div>
-    <div class="form-group"><label>Description:</label><textarea name="overview"></textarea></div>
     <button type="submit">Add/Update Content</button>
 </form>
 <hr class="section-divider">
@@ -245,7 +238,6 @@ ADMIN_EDIT_HTML = """
 {% endblock %}
 """
 
-
 CSS_CODE = """
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
 :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; --nav-height: 60px; }
@@ -287,10 +279,6 @@ a { text-decoration: none; color: inherit; }
 .detail-overview { line-height: 1.6; margin-bottom: 30px; }
 .quality-buttons a.watch-now-btn { display: inline-block; margin-right: 10px; margin-bottom: 10px; }
 .watch-now-btn { background-color: var(--netflix-red); color: white; padding: 12px 25px; font-size: 1rem; font-weight: 700; border-radius: 5px; }
-@media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
-"""
-
-ADMIN_CSS = """
 .admin-wrapper { padding: 100px 20px 40px; max-width: 900px; margin: 0 auto; }
 .admin-wrapper h2 { font-family: 'Bebas Neue', sans-serif; color: var(--netflix-red); font-size: 2.5rem; margin-bottom: 20px; }
 .admin-wrapper h3 { font-family: 'Bebas Neue', sans-serif; color: #fff; font-size: 1.5rem; margin: 20px 0 10px 0; }
@@ -308,22 +296,14 @@ input[type="text"], input[type="url"], input[type="password"], textarea { width:
 .cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
 .btn-logout { color:white; border: 1px solid white; padding: 5px 10px; border-radius: 4px; }
 .section-divider { border: 0; height: 1px; background-color: #333; margin: 40px 0; }
+@media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
 """
 
-# === Jinja2 এর জন্য সঠিক লোডার এবং রেন্ডারার (ফিক্সড) ===
-jinja_env = Environment(
-    loader=BaseLoader(),
-    extensions=['jinja2.ext.do']
-)
-
+# === Jinja2 Environment and render function (No change needed) ===
 @app.context_processor
 def inject_global_vars():
     return dict(bot_username=BOT_USERNAME, session=session)
 
-def render(template_string, **context):
-    return render_template_string(template_string, **context)
-
-# --- অ্যাডমিন লগইন ডেকোরেটর ---
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -331,7 +311,9 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# === Helper Functions ===
 def parse_filename(filename):
+    # ... (No change)
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
     quality_match = re.search(r'(\d{3,4}p)', cleaned_name, re.IGNORECASE)
     quality = quality_match.group(1).lower() if quality_match else 'HD'
@@ -342,6 +324,7 @@ def parse_filename(filename):
     return None
 
 def get_tmdb_details(parsed_info):
+    # ... (No change)
     api_url = f"https://api.themoviedb.org/3/search/{parsed_info['type']}"
     params = {'api_key': TMDB_API_KEY, 'query': parsed_info['title']}
     if parsed_info['type'] == 'movie': params['primary_release_year'] = parsed_info.get('year')
@@ -356,19 +339,12 @@ def get_tmdb_details(parsed_info):
     except requests.exceptions.RequestException as e: print(f"Error fetching TMDb info: {e}")
     return None
 
-# --- সাধারণ ব্যবহারকারীর রাউট ---
+# --- Main Routes ---
 @app.route('/')
 def home():
     if content_collection is None: return "Database connection failed.", 500
     query = request.args.get('q')
-    if query:
-        contents = list(content_collection.find({"title": {"$regex": query, "$options": "i"}}).sort('_id', -1))
-        return render(INDEX_HTML, contents=contents, css_code=CSS_CODE, is_full_page_list=True, list_title=f'Results for "{query}"', query=query)
     
-    recently_added = list(content_collection.find().sort('_id', -1).limit(5))
-    all_content = list(content_collection.find().sort('_id', -1).limit(18))
-    
-    # render_movie_card ম্যাক্রোকে একটি ভেরিয়েবলে রেখে পাস করা হচ্ছে
     card_macro = """
     {% macro render_movie_card(m) %}
         <a href="{{ url_for('content_detail', content_id=m._id) }}" class="movie-card">
@@ -377,22 +353,39 @@ def home():
         </a>
     {% endmacro %}
     """
-    return render(card_macro + INDEX_HTML, all_content=all_content, recently_added=recently_added, css_code=CSS_CODE, is_full_page_list=False)
+    
+    if query:
+        contents = list(content_collection.find({"title": {"$regex": query, "$options": "i"}}).sort('_id', -1))
+        return render_template_string(card_macro + INDEX_HTML, contents=contents, css_code=CSS_CODE, is_full_page_list=True, list_title=f'Results for "{query}"', query=query)
+    
+    recently_added = list(content_collection.find().sort('_id', -1).limit(5))
+    all_content = list(content_collection.find().sort('_id', -1).limit(18))
+    return render_template_string(card_macro + INDEX_HTML, all_content=all_content, recently_added=recently_added, css_code=CSS_CODE, is_full_page_list=False)
 
 @app.route('/content/<content_id>')
 def content_detail(content_id):
     if content_collection is None: return "Database connection failed.", 500
     try:
         content = content_collection.find_one({'_id': ObjectId(content_id)})
-        return render(DETAIL_HTML, content=content, css_code=CSS_CODE) if content else abort(404)
+        return render_template_string(DETAIL_HTML, content=content, css_code=CSS_CODE) if content else abort(404)
     except: abort(404)
 
-# --- অ্যাডমিন প্যানেলের রাউট ---
+# --- Admin Routes ---
 @app.route('/admin', methods=['GET'])
 @login_required
 def admin_dashboard():
     all_content = list(content_collection.find().sort('_id', -1))
-    return render(ADMIN_DASHBOARD_HTML, contents=all_content, css_code=CSS_CODE+ADMIN_CSS)
+    
+    # === পরিবর্তন এখানে: Jinja2 এর {% extends %} ব্যবহার করা হচ্ছে ===
+    # এটি syntax error ফিক্স করবে
+    env = Environment(loader=BaseLoader)
+    env.globals.update(url_for=url_for, get_flashed_messages=get_flashed_messages, session=session)
+    template = env.from_string(ADMIN_HTML)
+    return template.render(
+        css_code=CSS_CODE, 
+        admin_css=ADMIN_CSS,
+        content=render_template_string(ADMIN_DASHBOARD_HTML, contents=all_content)
+    )
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login_page():
@@ -401,7 +394,15 @@ def admin_login_page():
         if request.form['username'] == ADMIN_USER and request.form['password'] == ADMIN_PASS:
             session['logged_in'] = True; return redirect(url_for('admin_dashboard'))
         else: flash('Invalid credentials.', 'error')
-    return render(ADMIN_LOGIN_HTML, css_code=CSS_CODE+ADMIN_CSS)
+
+    env = Environment(loader=BaseLoader)
+    env.globals.update(url_for=url_for, get_flashed_messages=get_flashed_messages, session=session)
+    template = env.from_string(ADMIN_HTML)
+    return template.render(
+        css_code=CSS_CODE, 
+        admin_css=ADMIN_CSS,
+        content=render_template_string(ADMIN_LOGIN_HTML)
+    )
 
 @app.route('/admin/add', methods=['POST'])
 @login_required
@@ -409,11 +410,9 @@ def admin_add_content():
     filename = request.form.get('title')
     quality = request.form.get('quality')
     message_id = request.form.get('message_id')
-    
     if filename and quality and message_id:
         process_telegram_post(filename, int(message_id), quality)
-    
-    flash('Content added/updated successfully!', 'success')
+    flash('Content processed successfully!', 'success')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/edit/<content_id>', methods=['GET', 'POST'])
@@ -424,7 +423,15 @@ def admin_edit(content_id):
         updated_data = {'title': request.form['title'], 'description': request.form['description'], 'poster_url': request.form['poster_url']}
         content_collection.update_one({'_id': ObjectId(content_id)}, {'$set': updated_data})
         flash('Content updated successfully!', 'success'); return redirect(url_for('admin_dashboard'))
-    return render(ADMIN_EDIT_HTML, content=content, css_code=CSS_CODE+ADMIN_CSS)
+    
+    env = Environment(loader=BaseLoader)
+    env.globals.update(url_for=url_for, get_flashed_messages=get_flashed_messages, session=session)
+    template = env.from_string(ADMIN_HTML)
+    return template.render(
+        css_code=CSS_CODE, 
+        admin_css=ADMIN_CSS,
+        content=render_template_string(ADMIN_EDIT_HTML, content=content)
+    )
 
 @app.route('/admin/delete/<content_id>')
 @login_required
@@ -439,19 +446,11 @@ def admin_logout():
 def process_telegram_post(filename, message_id, quality_override=None):
     parsed_info = parse_filename(filename)
     if not parsed_info: return
-    
     quality = quality_override or parsed_info['quality']
-    
-    # এখানে সিরিজের নাম থেকে সিজন/এপিসোড নম্বর বাদ দেওয়া হচ্ছে যাতে মূল টাইটেল দিয়ে সার্চ করা যায়
-    search_title = parsed_info['title']
-    if parsed_info['type'] == 'tv':
-        search_title = re.sub(r'\s*[sS]\d+[eE]\d+.*', '', search_title, flags=re.IGNORECASE).strip()
-
+    search_title = re.sub(r'\s*[sS]\d+[eE]\d+.*', '', parsed_info['title'], flags=re.IGNORECASE).strip()
     existing_content = content_collection.find_one({'original_title': search_title})
-    
     if existing_content:
-        quality_key = f"qualities.{quality}"
-        content_collection.update_one({'_id': existing_content['_id']}, {'$set': {quality_key: message_id}})
+        content_collection.update_one({'_id': existing_content['_id']}, {'$set': {f"qualities.{quality}": message_id}})
         print(f"SUCCESS: Updated quality '{quality}' for '{existing_content['title']}'")
     else:
         tmdb_data = get_tmdb_details(parsed_info)
@@ -460,7 +459,7 @@ def process_telegram_post(filename, message_id, quality_override=None):
             content_collection.insert_one(tmdb_data)
             print(f"SUCCESS: New content '{tmdb_data['title']}' saved.")
 
-# --- টেলিগ্রাম ওয়েবহুক ---
+# --- Telegram Webhook ---
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
