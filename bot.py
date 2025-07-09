@@ -1,7 +1,7 @@
 import os
 import re
 import requests
-from flask import Flask, request, jsonify, abort, render_template_string, redirect, url_for, session, flash
+from flask import Flask, request, jsonify, abort, render_template_string, redirect, url_for, session, flash, Response
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 from jinja2 import Environment, BaseLoader, TemplateNotFound
@@ -34,127 +34,102 @@ except Exception as e:
     print(f"FATAL: Could not connect to MongoDB. Error: {e}")
     content_collection = None
 
-# --- HTML এবং CSS টেমপ্লেট ---
+# --- আপনার দেওয়া ডিজাইন থেকে HTML এবং CSS টেমপ্লেট ---
+# --- (আমাদের সিস্টেমের সাথে ইন্টিগ্রেট করা) ---
 TEMPLATES = {
     "base": """
-<!doctype html>
-<html lang="bn">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="utf-8"> <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}অটো মুভি ও সিরিজ{% endblock %}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"/>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>{% block title %}MovieZone{% endblock %} - Your Entertainment Hub</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
     <style>{{ css_code|safe }}</style>
 </head>
 <body>
-    <header class="sticky-top">
-        <nav class="navbar navbar-expand-lg main-nav">
-            <div class="container">
-                <a class="navbar-brand" href="/"><i class="fa-solid fa-film"></i> অটো মুভি ও সিরিজ</a>
-                {% if session.get('logged_in') %}
-                <a href="{{ url_for('admin_logout') }}" class="btn btn-sm btn-outline-light">Logout</a>
-                {% endif %}
-            </div>
-        </nav>
+    <header class="main-nav">
+      <a href="{{ url_for('index') }}" class="logo">MovieZone</a>
+      <!-- Search form can be added later if needed -->
     </header>
-    <main class="container my-5"> {% block content %}{% endblock %} </main>
-    <footer class="text-center py-4 mt-auto"> <p class="text-white-50">© 2024 All Rights Reserved.</p> </footer>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <nav class="bottom-nav">
+      <a href="{{ url_for('index') }}" class="nav-item active"><i class="fas fa-home"></i><span>Home</span></a>
+      <!-- Other nav items can be added later -->
+      <a href="{{ url_for('admin_login') if not session.get('logged_in') else url_for('admin_dashboard') }}" class="nav-item"><i class="fas fa-user-shield"></i><span>Admin</span></a>
+    </nav>
+    <script>
+        const nav = document.querySelector('.main-nav');
+        if(nav){ window.addEventListener('scroll', () => { window.scrollY > 50 ? nav.classList.add('scrolled') : nav.classList.remove('scrolled'); }); }
+    </script>
 </body>
 </html>
 """,
     "index": """
 {% extends "base" %}
-{% block title %}সকল মুভি ও সিরিজ{% endblock %}
+{% block title %}Home{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4"> <h2 class="section-title">সর্বশেষ আপলোড</h2> </div>
-<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-4">
-    {% for content in contents %}
-    <div class="col">
-        <a href="/content/{{ content._id }}" class="text-decoration-none">
-            <div class="movie-card">
-                <img src="{{ content.poster_url or 'https://via.placeholder.com/500x750.png?text=No+Image' }}" class="movie-poster" alt="{{ content.title }}" loading="lazy">
-                <div class="movie-overlay">
-                    <div class="movie-info">
-                        <h5 class="movie-title">{{ content.title }}</h5>
-                        <div class="d-flex justify-content-between align-items-center mt-2">
-                            <span class="badge bg-warning text-dark"><i class="fa-solid fa-star me-1"></i>{{ content.rating }}</span>
-                            <span class="badge bg-light text-dark">{{ content.release_year }}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </a>
+    <div class="full-page-grid-container">
+      <h2 class="full-page-grid-title">All Movies & Series</h2>
+      {% if contents|length == 0 %}
+        <p style="text-align:center; color: #a0a0a0; margin-top: 40px;">No content found.</p>
+      {% else %}
+        <div class="full-page-grid">
+            {% for content in contents %}
+                <a href="{{ url_for('content_detail', content_id=content._id) }}" class="movie-card">
+                  <img class="movie-poster" loading="lazy" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}">
+                  <div class="card-info-overlay"><h4 class="card-info-title">{{ content.title }}</h4></div>
+                </a>
+            {% endfor %}
+        </div>
+      {% endif %}
     </div>
-    {% else %}
-    <div class="col-12 text-center py-5"> <h4 class="text-white-50">এখনও কোনো মুভি বা সিরিজ আপলোড করা হয়নি।</h4> </div>
-    {% endfor %}
-</div>
 {% endblock %}
 """,
     "detail": """
 {% extends "base" %}
-{% block title %}{{ content.title }}{% endblock %}
+{% block title %}{{ content.title if content else "Not Found" }}{% endblock %}
 {% block content %}
-<div class="card movie-detail-card bg-transparent border-0">
-    <div class="row g-0">
-        <div class="col-md-4 text-center">
-            <img src="{{ content.poster_url or 'https://via.placeholder.com/500x750.png?text=No+Image' }}" class="img-fluid rounded-3 movie-detail-poster" alt="{{ content.title }}">
-        </div>
-        <div class="col-md-8">
-            <div class="card-body p-lg-5 p-md-4 p-2">
-                <h1 class="card-title display-5">{{ content.title }}</h1>
-                <div class="d-flex align-items-center gap-3 my-3">
-                    <span class="badge fs-6 text-bg-warning"><i class="fa-solid fa-star me-1"></i> IMDb: {{ content.rating }}/10</span>
-                    <span class="badge fs-6 text-bg-secondary">{{ content.release_year }}</span>
-                </div>
-                <h5 class="mt-4 mb-3">কাহিনী সংক্ষেপ</h5>
-                <p class="card-text text-white-50">{{ content.description or 'No description available.' }}</p>
-                <div class="mt-5">
-                    <h5 class="mb-3">পেতে নিচের বাটনে ক্লিক করুন</h5>
-                    <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}" class="btn btn-primary btn-lg" target="_blank">
-                        <i class="fa-solid fa-robot me-2"></i> Get from Bot
-                    </a>
-                </div>
-                <p class="text-muted small mt-3">এই লিঙ্কে ক্লিক করলে আপনাকে সরাসরি টেলিগ্রাম বটে নিয়ে যাওয়া হবে এবং ফাইলটি পাঠিয়ে দেওয়া হবে।</p>
-            </div>
-        </div>
+<header class="detail-header"><a href="{{ url_for('index') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
+{% if content %}
+<div class="detail-hero" style="min-height: auto; padding-bottom: 60px;">
+  <div class="detail-hero-background" style="background-image: url('{{ content.poster_url }}');"></div>
+  <div class="detail-content-wrapper">
+    <img class="detail-poster" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}">
+    <div class="detail-info">
+      <h1 class="detail-title">{{ content.title }}</h1>
+      <div class="detail-meta">
+        {% if content.release_year %}<span>{{ content.release_year }}</span>{% endif %}
+        {% if content.rating %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>{% endif %}
+      </div>
+      <p class="detail-overview">{{ content.description }}</p>
+      <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}" class="watch-now-btn" target="_blank"><i class="fas fa-robot"></i> Get from Bot</a>
     </div>
+  </div>
 </div>
+{% else %}
+<div style="display:flex; justify-content:center; align-items:center; height:100vh;"><h2>Content not found.</h2></div>
+{% endif %}
 {% endblock %}
 """,
     "admin_login": """
 {% extends "base" %}
 {% block title %}Admin Login{% endblock %}
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-6 col-lg-4">
-        <div class="card bg-dark border-secondary">
-            <div class="card-body p-4">
-                <h3 class="text-center mb-4">Admin Login</h3>
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                  {% if messages %}
-                    {% for category, message in messages %}
-                      <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }}" role="alert">{{ message }}</div>
-                    {% endfor %}
-                  {% endif %}
-                {% endwith %}
-                <form method="post" action="{{ url_for('admin_login') }}">
-                    <div class="mb-3">
-                        <label for="username" class="form-label">Username</label>
-                        <input type="text" class="form-control" id="username" name="username" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="password" class="form-label">Password</label>
-                        <input type="password" class="form-control" id="password" name="password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">Login</button>
-                </form>
-            </div>
-        </div>
-    </div>
+<div class="admin-container">
+    <h2>Admin Login</h2>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}
+    {% endwith %}
+    <form method="post" class="admin-form">
+        <div class="form-group"><label for="username">Username</label><input type="text" name="username" required></div>
+        <div class="form-group"><label for="password">Password</label><input type="password" name="password" required></div>
+        <button type="submit">Login</button>
+    </form>
 </div>
 {% endblock %}
 """,
@@ -162,33 +137,29 @@ TEMPLATES = {
 {% extends "base" %}
 {% block title %}Admin Dashboard{% endblock %}
 {% block content %}
-<h2 class="section-title mb-4">Admin Dashboard - All Content</h2>
-<div class="table-responsive">
-    <table class="table table-dark table-striped table-hover align-middle">
-        <thead>
-            <tr>
-                <th>Poster</th>
-                <th>Title</th>
-                <th>Type</th>
-                <th>Year</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for content in contents %}
-            <tr>
-                <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
-                <td>{{ content.title }}</td>
-                <td><span class="badge text-bg-info text-uppercase">{{ content.type }}</span></td>
-                <td>{{ content.release_year }}</td>
-                <td>
-                    <a href="{{ url_for('admin_edit', content_id=content._id) }}" class="btn btn-sm btn-warning">Edit</a>
-                    <a href="{{ url_for('admin_delete', content_id=content._id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this item?');">Delete</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<div class="admin-container">
+    <h2>Admin Dashboard</h2>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}
+    {% endwith %}
+    <div class="table-responsive">
+        <table class="content-table">
+            <thead><tr><th>Poster</th><th>Title</th><th>Type</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for content in contents %}
+                <tr>
+                    <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
+                    <td>{{ content.title }}</td>
+                    <td><span class="type-badge">{{ content.type }}</span></td>
+                    <td class="action-buttons">
+                        <a href="{{ url_for('admin_edit', content_id=content._id) }}" class="edit-btn">Edit</a>
+                        <a href="{{ url_for('admin_delete', content_id=content._id) }}" class="delete-btn" onclick="return confirm('Are you sure?');">Delete</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% endblock %}
 """,
@@ -196,66 +167,93 @@ TEMPLATES = {
 {% extends "base" %}
 {% block title %}Edit Content{% endblock %}
 {% block content %}
-<h2 class="section-title mb-4">Edit: {{ content.title }}</h2>
-<form method="post">
-    <div class="mb-3">
-        <label for="title" class="form-label">Title</label>
-        <input type="text" class="form-control" id="title" name="title" value="{{ content.title }}" required>
-    </div>
-    <div class="mb-3">
-        <label for="description" class="form-label">Description</label>
-        <textarea class="form-control" id="description" name="description" rows="5">{{ content.description }}</textarea>
-    </div>
-    <div class="mb-3">
-        <label for="poster_url" class="form-label">Poster URL</label>
-        <input type="url" class="form-control" id="poster_url" name="poster_url" value="{{ content.poster_url }}">
-    </div>
-    <button type="submit" class="btn btn-primary">Save Changes</button>
-    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Cancel</a>
-</form>
+<div class="admin-container">
+    <h2>Edit: {{ content.title }}</h2>
+    <form method="post" class="admin-form">
+        <div class="form-group"><label for="title">Title</label><input type="text" name="title" value="{{ content.title }}" required></div>
+        <div class="form-group"><label for="description">Description</label><textarea name="description" rows="5">{{ content.description }}</textarea></div>
+        <div class="form-group"><label for="poster_url">Poster URL</label><input type="url" name="poster_url" value="{{ content.poster_url }}"></div>
+        <button type="submit">Save Changes</button>
+        <a href="{{ url_for('admin_dashboard') }}" class="cancel-link">Cancel</a>
+    </form>
+</div>
 {% endblock %}
 """
 }
 
 CSS_CODE = """
-:root { --primary-color: #e50914; --background-color: #141414; --card-background: #1f1f1f; --text-color: #ffffff; --font-family: 'Hind Siliguri', sans-serif; }
-body { background-color: var(--background-color) !important; color: var(--text-color) !important; font-family: var(--font-family); display: flex; flex-direction: column; min-height: 100vh; }
-.main-nav { background-color: rgba(20, 20, 20, 0.85); backdrop-filter: blur(10px); border-bottom: 1px solid #222; }
-.navbar-brand { font-weight: 700; color: var(--primary-color) !important; font-size: 1.5rem; }
-.section-title { font-weight: 600; border-left: 4px solid var(--primary-color); padding-left: 15px; }
-.movie-card { position: relative; overflow: hidden; border-radius: 8px; background-color: var(--card-background); transition: transform 0.3s ease, box-shadow 0.3s ease; cursor: pointer; border: 1px solid #2a2a2a; }
-.movie-card:hover { transform: scale(1.05); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
-.movie-poster { width: 100%; height: auto; aspect-ratio: 2/3; object-fit: cover; display: block; }
-.movie-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 50%); display: flex; align-items: flex-end; opacity: 0; transition: opacity 0.3s ease; }
-.movie-card:hover .movie-overlay { opacity: 1; }
-.movie-info { padding: 1rem; width: 100%; }
-.movie-title { font-size: 1rem; font-weight: 600; color: var(--text-color); margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.movie-detail-poster { max-width: 350px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7); }
-.movie-detail-card .display-5 { font-weight: 700; }
-.btn-primary { background-color: var(--primary-color); border-color: var(--primary-color); }
-.btn-primary:hover { background-color: #c40812; border-color: #c40812; }
-.table-dark { --bs-table-bg: #212529; --bs-table-striped-bg: #2c3034; --bs-table-hover-bg: #323539; }
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
+:root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; --nav-height: 60px; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Roboto', sans-serif; background-color: var(--netflix-black); color: var(--text-light); overflow-x: hidden; }
+a { text-decoration: none; color: inherit; }
+.main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; z-index: 100; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
+.main-nav.scrolled { background-color: var(--netflix-black); }
+.logo { font-family: 'Bebas Neue', sans-serif; font-size: 32px; color: var(--netflix-red); font-weight: 700; letter-spacing: 1px; }
+.full-page-grid-container { padding: 100px 50px 50px 50px; }
+.full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; }
+.full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+.movie-card { min-width: 0; border-radius: 4px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; position: relative; background-color: #222; display: block; }
+.movie-poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
+.card-info-overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 20px 10px 10px 10px; background: linear-gradient(to top, rgba(0,0,0,0.95) 20%, transparent 100%); color: white; text-align: center; opacity: 0; transform: translateY(20px); transition: opacity 0.3s ease, transform 0.3s ease; z-index: 2; }
+.card-info-title { font-size: 1rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 5; } .movie-card:hover .card-info-overlay { opacity: 1; transform: translateY(0); } }
+.bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); background-color: #181818; border-top: 1px solid #282828; justify-content: space-around; align-items: center; z-index: 200; }
+.nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-dark); font-size: 10px; flex-grow: 1; padding: 5px 0; transition: color 0.2s ease; }
+.nav-item i { font-size: 20px; margin-bottom: 4px; }
+.nav-item.active { color: var(--text-light); }
+.nav-item.active i { color: var(--netflix-red); }
+.detail-header { position: absolute; top: 0; left: 0; right: 0; padding: 20px 50px; z-index: 100; }
+.back-button { color: var(--text-light); font-size: 1.2rem; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 10px; transition: color 0.3s ease; }
+.back-button:hover { color: var(--netflix-red); }
+.detail-hero { position: relative; width: 100%; display: flex; align-items: center; justify-content: center; padding: 100px 0; }
+.detail-hero-background { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-size: cover; background-position: center; filter: blur(20px) brightness(0.4); transform: scale(1.1); }
+.detail-hero::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(20,20,20,1) 0%, rgba(20,20,20,0.6) 50%, rgba(20,20,20,1) 100%); }
+.detail-content-wrapper { position: relative; z-index: 2; display: flex; gap: 40px; max-width: 1200px; padding: 0 50px; width: 100%; }
+.detail-poster { width: 300px; height: 450px; flex-shrink: 0; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); object-fit: cover; }
+.detail-info { flex-grow: 1; max-width: 65%; }
+.detail-title { font-family: 'Bebas Neue', sans-serif; font-size: 4.5rem; font-weight: 700; line-height: 1.1; margin-bottom: 20px; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 25px; font-size: 1rem; color: var(--text-dark); }
+.detail-meta span { font-weight: 700; color: var(--text-light); }
+.detail-overview { font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
+.watch-now-btn { background-color: var(--netflix-red); color: white; padding: 15px 30px; font-size: 1.2rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; margin-bottom: 25px; transition: transform 0.2s ease, background-color 0.2s ease; }
+.watch-now-btn:hover { transform: scale(1.05); background-color: #f61f29; }
+.admin-container { padding: 80px 20px 40px; max-width: 800px; margin: 0 auto; }
+.admin-form { background: #222; padding: 25px; border-radius: 8px; }
+.form-group { margin-bottom: 15px; } .form-group label { display: block; margin-bottom: 8px; font-weight: bold; }
+input[type="text"], input[type="url"], input[type="password"], textarea { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid #333; font-size: 1rem; background: #333; color: var(--text-light); }
+.admin-form button { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; width: 100%; }
+.flash-msg { padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
+.flash-msg.success { background-color: #1f4e2c; color: #d4edda; }
+.flash-msg.error { background-color: #721c24; color: #f8d7da; }
+.content-table { width: 100%; border-collapse: collapse; }
+.content-table th, .content-table td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
+.content-table th { background: #252525; }
+.action-buttons { display: flex; gap: 10px; }
+.action-buttons a { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; }
+.edit-btn { background: #0d6efd; } .delete-btn { background: #dc3545; }
+.type-badge { background-color: #0dcaf0; color: #000; padding: 0.25em 0.5em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; }
+.cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
+@media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
 """
 
-# === Jinja2 এর জন্য সঠিক লোডার এবং রেন্ডারার (ফিক্সড) ===
+# === Jinja2 এর জন্য সঠিক লোডার এবং রেন্ডারার ===
 class DictLoader(BaseLoader):
     def __init__(self, templates): self.templates = templates
     def get_source(self, environment, template):
-        if template in self.templates:
-            return self.templates[template], None, lambda: True
+        if template in self.templates: return self.templates[template], None, lambda: True
         raise TemplateNotFound(template)
 
 jinja_env = Environment(loader=DictLoader(TEMPLATES))
 def render_template(template_name, **context):
     template = jinja_env.get_template(template_name)
-    return template.render(css_code=CSS_CODE, bot_username=BOT_USERNAME, **context)
+    return render_template_string(template.render(**context), css_code=CSS_CODE, bot_username=BOT_USERNAME)
 
 # --- অ্যাডমিন লগইন ডেকোরেটর ---
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'):
-            return redirect(url_for('admin_login'))
+        if not session.get('logged_in'): return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -367,14 +365,7 @@ def telegram_webhook():
                 content_id_str = text.split('_')[1]
                 content = content_collection.find_one({'_id': ObjectId(content_id_str)})
                 if content and 'message_id_in_channel' in content:
-                    wait_msg_res = requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=✅ Request received. Please wait...").json()
-                    wait_msg_id = wait_msg_res.get('result', {}).get('message_id')
-                    
-                    payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': content['message_id_in_channel']}
-                    res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
-                    
-                    if wait_msg_id: requests.get(f"{TELEGRAM_API_URL}/deleteMessage?chat_id={chat_id}&message_id={wait_msg_id}")
-                    if not res.json().get('ok'): requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, send failed.")
+                    requests.get(f"{TELEGRAM_API_URL}/copyMessage?chat_id={chat_id}&from_chat_id={ADMIN_CHANNEL_ID}&message_id={content['message_id_in_channel']}")
                 else: requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, content not found.")
             except Exception as e:
                 print(f"CRITICAL ERROR: {e}")
