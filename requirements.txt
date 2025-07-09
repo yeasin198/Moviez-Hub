@@ -1,7 +1,7 @@
 Flask
 requests
 gunicorn
-pymongo
+pymongo[srv]
 Jinja2
 pyrogram
 TgCrypto
