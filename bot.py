@@ -13,7 +13,7 @@ MONGO_URI = "mongodb+srv://mesohas358:mesohas358@cluster0.6kxy1vc.mongodb.net/mo
 BOT_TOKEN = "7931162174:AAGK8aSdqoYpZ4bsSXp36dp6zbVnYeenowA"
 TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
 ADMIN_CHANNEL_ID = "-1002853936940"
-BOT_USERNAME = "CTGVideoPlayerBot"
+BOT_USERNAME = "Mtest100bot"
 ADMIN_USER = "Nahid270"
 ADMIN_PASS = "Nahid270"
 # ======================================================================
@@ -93,14 +93,17 @@ DETAIL_TEMPLATE = """
             {% if content.rating %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>{% endif %}
           </div>
           <p class="detail-overview">{{ content.description }}</p>
-          <!-- === পরিবর্তন এখানে: কোয়ালিটি অনুযায়ী বাটন === -->
           <h5 class="mb-3">Get from Bot</h5>
           <div class="quality-buttons">
-            {% for quality, msg_id in content.qualities.items() %}
-                <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}_{{ quality }}" class="watch-now-btn" target="_blank">
-                    <i class="fas fa-robot"></i> Get {{ quality }}
-                </a>
-            {% endfor %}
+            {% if content.qualities %}
+                {% for quality, msg_id in content.qualities.items() %}
+                    <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}_{{ quality }}" class="watch-now-btn" target="_blank">
+                        <i class="fas fa-robot"></i> Get {{ quality }}
+                    </a>
+                {% endfor %}
+            {% else %}
+                <p>No download links available.</p>
+            {% endif %}
           </div>
           <p class="text-muted small mt-3">এই লিঙ্কে ক্লিক করলে আপনাকে সরাসরি টেলিগ্রাম বটে নিয়ে যাওয়া হবে এবং ফাইলটি পাঠিয়ে দেওয়া হবে।</p>
         </div>
@@ -113,6 +116,7 @@ DETAIL_TEMPLATE = """
 </html>
 """
 
+# === পরিবর্তন এখানে: ADMIN_TEMPLATE আপডেট করা হয়েছে ===
 ADMIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -155,9 +159,14 @@ ADMIN_TEMPLATE = """
                                 <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
                                 <td>{{ content.title }}</td>
                                 <td>
-                                    {% for quality in content.qualities.keys() %}
-                                        <span class="type-badge">{{ quality }}</span>
-                                    {% endfor %}
+                                    <!-- === ফিক্স এখানে: 'qualities' আছে কিনা চেক করা হচ্ছে === -->
+                                    {% if content.qualities %}
+                                        {% for quality in content.qualities.keys() %}
+                                            <span class="type-badge">{{ quality }}</span>
+                                        {% endfor %}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
                                 </td>
                                 <td class="action-buttons">
                                     <a href="{{ url_for('admin_edit', content_id=content._id) }}" class="edit-btn">Edit</a>
@@ -255,7 +264,7 @@ def login_required(f):
 def parse_filename(filename):
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
     quality_match = re.search(r'(\d{3,4}p)', cleaned_name, re.IGNORECASE)
-    quality = quality_match.group(1) if quality_match else 'HD'
+    quality = quality_match.group(1).lower() if quality_match else 'HD'
     
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', cleaned_name, re.IGNORECASE)
     if series_match:
@@ -345,15 +354,10 @@ def telegram_webhook():
                 if parsed_info:
                     existing_content = content_collection.find_one({'original_title': parsed_info['title']})
                     if existing_content:
-                        # --- কন্টেন্ট আপডেট করার লজিক ---
                         quality_key = f"qualities.{parsed_info['quality']}"
-                        content_collection.update_one(
-                            {'_id': existing_content['_id']},
-                            {'$set': {quality_key: post['message_id']}}
-                        )
+                        content_collection.update_one({'_id': existing_content['_id']}, {'$set': {quality_key: post['message_id']}})
                         print(f"SUCCESS: Updated quality '{parsed_info['quality']}' for '{existing_content['title']}'")
                     else:
-                        # --- নতুন কন্টেন্ট যোগ করার লজিক ---
                         tmdb_data = get_tmdb_info(parsed_info)
                         if tmdb_data:
                             tmdb_data['qualities'] = {parsed_info['quality']: post['message_id']}
@@ -367,7 +371,7 @@ def telegram_webhook():
             requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Welcome! Browse our website.")
         elif text.startswith('/start get_'):
             try:
-                parts = text.split('_') # যেমন: ['/start', 'get', 'mongo_id', '720p']
+                parts = text.split('_')
                 content_id_str, quality = parts[1], parts[2]
                 content = content_collection.find_one({'_id': ObjectId(content_id_str)})
                 if content and quality in content.get('qualities', {}):
