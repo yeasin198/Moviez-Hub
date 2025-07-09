@@ -5,7 +5,8 @@ from flask import Flask, render_template_string, request, redirect, url_for, Res
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # ======================================================================
 # --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য ---
@@ -56,6 +57,26 @@ except Exception as e:
 def inject_ads():
     ad_codes = settings.find_one()
     return dict(ad_settings=(ad_codes or {}), bot_username=BOT_USERNAME)
+
+# --- মেসেজ অটো-ডিলিট ফাংশন এবং সিডিউলার সেটআপ ---
+def delete_message_after_delay(chat_id, message_id):
+    """নির্দিষ্ট সময় পর টেলিগ্রাম মেসেজ ডিলিট করার ফাংশন।"""
+    print(f"Attempting to delete message {message_id} from chat {chat_id}")
+    try:
+        url = f"{TELEGRAM_API_URL}/deleteMessage"
+        payload = {'chat_id': chat_id, 'message_id': message_id}
+        response = requests.post(url, json=payload)
+        if response.json().get('ok'):
+            print(f"Successfully deleted message {message_id} from chat {chat_id}")
+        else:
+            print(f"Failed to delete message: {response.text}")
+    except Exception as e:
+        print(f"Error in delete_message_after_delay: {e}")
+
+# সিডিউলার তৈরি এবং চালু করা
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.start()
+
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
@@ -718,20 +739,35 @@ def telegram_webhook():
                         requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Content not found."})
                         return jsonify(status='ok')
 
-                    message_to_copy = None
+                    message_to_copy_id = None
                     if content.get('type') == 'series' and len(payload_parts) == 3:
                         s_num, e_num = int(payload_parts[1]), int(payload_parts[2])
                         target_episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == s_num and ep.get('episode_number') == e_num), None)
-                        if target_episode: message_to_copy = target_episode.get('message_id')
+                        if target_episode: message_to_copy_id = target_episode.get('message_id')
                     elif content.get('type') == 'movie' and len(payload_parts) == 2:
                         quality_to_find = payload_parts[1]
                         target_file = next((f for f in content.get('files', []) if f.get('quality') == quality_to_find), None)
-                        if target_file: message_to_copy = target_file.get('message_id')
+                        if target_file: message_to_copy_id = target_file.get('message_id')
                     
-                    if message_to_copy:
-                        payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_to_copy}
+                    if message_to_copy_id:
+                        payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_to_copy_id}
                         res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
-                        if not res.json().get('ok'):
+                        res_json = res.json()
+                        
+                        if res_json.get('ok'):
+                            new_message_id = res_json['result']['message_id']
+                            run_time = datetime.now() + timedelta(minutes=30)
+                            
+                            scheduler.add_job(
+                                func=delete_message_after_delay,
+                                trigger='date',
+                                run_date=run_time,
+                                args=[chat_id, new_message_id],
+                                id=f'delete_{chat_id}_{new_message_id}',
+                                replace_existing=True
+                            )
+                            print(f"Scheduled message {new_message_id} for deletion in chat {chat_id} at {run_time}")
+                        else:
                              print(f"Failed to copy message: {res.text}")
                              requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file. It might have been deleted."})
                     else:
