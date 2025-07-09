@@ -1,12 +1,17 @@
 # ======================================================================
-# FINAL, REVIEWED, AND STABLE CODE
+# FINAL, COMPLETE, AND REVIEWED CODE
+# Date: 2024-05-23
+# Author: Your AI Assistant
+# Description: A complete Flask application for a movie/series website
+# with Telegram integration for file delivery and online streaming.
 # ======================================================================
 
 import os
 import re
 import requests
 from flask import (
-    Flask, request, jsonify, abort, render_template_string, redirect, url_for, session, flash
+    Flask, request, jsonify, abort, render_template_string, redirect, url_for, session, flash,
+    Response, stream_with_context
 )
 from pymongo import MongoClient
 from bson.objectid import ObjectId
@@ -43,6 +48,61 @@ except Exception as e:
 # ======================================================================
 # --- HTML এবং CSS টেমপ্লেট ---
 # ======================================================================
+CSS_CODE = """
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
+:root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; --nav-height: 60px; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Roboto', sans-serif; background-color: var(--netflix-black); color: var(--text-light); overflow-x: hidden; }
+a { text-decoration: none; color: inherit; }
+.main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; z-index: 100; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
+.main-nav.scrolled { background-color: var(--netflix-black); }
+.logo { font-family: 'Bebas Neue', sans-serif; font-size: 32px; color: var(--netflix-red); font-weight: 700; letter-spacing: 1px; }
+.full-page-grid-container { padding: 100px 50px 50px 50px; }
+.full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; }
+.full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+.movie-card { min-width: 0; border-radius: 4px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; position: relative; background-color: #222; display: block; }
+.movie-poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
+.card-info-overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 20px 10px 10px 10px; background: linear-gradient(to top, rgba(0,0,0,0.95) 20%, transparent 100%); color: white; text-align: center; opacity: 0; transform: translateY(20px); transition: opacity 0.3s ease, transform 0.3s ease; z-index: 2; }
+.card-info-title { font-size: 1rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 5; } .movie-card:hover .card-info-overlay { opacity: 1; transform: translateY(0); } }
+.bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); background-color: #181818; border-top: 1px solid #282828; justify-content: space-around; align-items: center; z-index: 200; }
+.nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-dark); font-size: 10px; flex-grow: 1; padding: 5px 0; transition: color 0.2s ease; }
+.nav-item i { font-size: 20px; margin-bottom: 4px; }
+.nav-item.active { color: var(--text-light); }
+.nav-item.active i { color: var(--netflix-red); }
+.detail-header { position: absolute; top: 0; left: 0; right: 0; padding: 20px 50px; z-index: 100; }
+.back-button { color: var(--text-light); font-size: 1.2rem; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 10px; transition: color 0.3s ease; }
+.back-button:hover { color: var(--netflix-red); }
+.detail-hero { position: relative; width: 100%; display: flex; align-items: center; justify-content: center; padding: 100px 0; }
+.detail-hero-background { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-size: cover; background-position: center; filter: blur(20px) brightness(0.4); transform: scale(1.1); }
+.detail-hero::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(20,20,20,1) 0%, rgba(20,20,20,0.6) 50%, rgba(20,20,20,1) 100%); }
+.detail-content-wrapper { position: relative; z-index: 2; display: flex; gap: 40px; max-width: 1200px; padding: 0 50px; width: 100%; }
+.detail-poster { width: 300px; height: 450px; flex-shrink: 0; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); object-fit: cover; }
+.detail-info { flex-grow: 1; max-width: 65%; }
+.detail-title { font-family: 'Bebas Neue', sans-serif; font-size: 4.5rem; font-weight: 700; line-height: 1.1; margin-bottom: 20px; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 25px; font-size: 1rem; color: var(--text-dark); }
+.detail-meta span { font-weight: 700; color: var(--text-light); }
+.detail-overview { font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
+.quality-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+.watch-now-btn { background-color: var(--netflix-red); color: white; padding: 12px 25px; font-size: 1rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; transition: transform 0.2s ease, background-color 0.2s ease; }
+.watch-now-btn:hover { transform: scale(1.05); background-color: #f61f29; }
+.admin-container { padding: 100px 20px 40px; max-width: 800px; margin: 0 auto; }
+.admin-form { background: #222; padding: 25px; border-radius: 8px; }
+.form-group { margin-bottom: 15px; } .form-group label { display: block; margin-bottom: 8px; font-weight: bold; }
+input[type="text"], input[type="url"], input[type="password"], textarea { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid #333; font-size: 1rem; background: #333; color: var(--text-light); }
+.admin-form button { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; width: 100%; }
+.flash-msg { padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
+.flash-msg.success { background-color: #1f4e2c; color: #d4edda; } .flash-msg.error { background-color: #721c24; color: #f8d7da; }
+.table-responsive { overflow-x: auto; } .content-table { width: 100%; border-collapse: collapse; }
+.content-table th, .content-table td { padding: 12px; text-align: left; border-bottom: 1px solid #333; white-space: nowrap; }
+.content-table th { background: #252525; } .action-buttons { display: flex; gap: 10px; }
+.action-buttons a { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; }
+.edit-btn { background: #0d6efd; } .delete-btn { background: #dc3545; }
+.type-badge { background-color: #0dcaf0; color: #000; padding: 0.25em 0.5em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; text-transform: uppercase; }
+.cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
+@media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
+"""
+
 INDEX_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -151,8 +211,8 @@ DETAIL_TEMPLATE = """
             const playButtons = document.querySelectorAll('.play-btn');
 
             function loadVideo(quality) {
-                const playUrl = `{{ url_for('play_content', content_id=content._id, quality='_PLACEHOLDER_') }}`.replace('_PLACEHOLDER_', quality);
-                player.src({ src: playUrl, type: 'video/mp4' });
+                const streamUrl = `{{ url_for('stream_content', content_id=content._id, quality='_PLACEHOLDER_') }}`.replace('_PLACEHOLDER_', quality);
+                player.src({ src: streamUrl, type: 'video/mp4' });
                 player.play();
             }
 
@@ -165,7 +225,7 @@ DETAIL_TEMPLATE = """
             
             if (playButtons.length > 0) {
                 const defaultQuality = playButtons[0].getAttribute('data-quality');
-                const defaultUrl = `{{ url_for('play_content', content_id=content._id, quality='_PLACEHOLDER_') }}`.replace('_PLACEHOLDER_', defaultQuality);
+                const defaultUrl = `{{ url_for('stream_content', content_id=content._id, quality='_PLACEHOLDER_') }}`.replace('_PLACEHOLDER_', defaultQuality);
                 player.src({ src: defaultUrl, type: 'video/mp4' });
             }
         });
@@ -249,61 +309,6 @@ ADMIN_TEMPLATE = """
 </html>
 """
 
-CSS_CODE = """
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
-:root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; --nav-height: 60px; }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Roboto', sans-serif; background-color: var(--netflix-black); color: var(--text-light); overflow-x: hidden; }
-a { text-decoration: none; color: inherit; }
-.main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; z-index: 100; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
-.main-nav.scrolled { background-color: var(--netflix-black); }
-.logo { font-family: 'Bebas Neue', sans-serif; font-size: 32px; color: var(--netflix-red); font-weight: 700; letter-spacing: 1px; }
-.full-page-grid-container { padding: 100px 50px 50px 50px; }
-.full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; }
-.full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
-.movie-card { min-width: 0; border-radius: 4px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; position: relative; background-color: #222; display: block; }
-.movie-poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
-.card-info-overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 20px 10px 10px 10px; background: linear-gradient(to top, rgba(0,0,0,0.95) 20%, transparent 100%); color: white; text-align: center; opacity: 0; transform: translateY(20px); transition: opacity 0.3s ease, transform 0.3s ease; z-index: 2; }
-.card-info-title { font-size: 1rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-@media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 5; } .movie-card:hover .card-info-overlay { opacity: 1; transform: translateY(0); } }
-.bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); background-color: #181818; border-top: 1px solid #282828; justify-content: space-around; align-items: center; z-index: 200; }
-.nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-dark); font-size: 10px; flex-grow: 1; padding: 5px 0; transition: color 0.2s ease; }
-.nav-item i { font-size: 20px; margin-bottom: 4px; }
-.nav-item.active { color: var(--text-light); }
-.nav-item.active i { color: var(--netflix-red); }
-.detail-header { position: absolute; top: 0; left: 0; right: 0; padding: 20px 50px; z-index: 100; }
-.back-button { color: var(--text-light); font-size: 1.2rem; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 10px; transition: color 0.3s ease; }
-.back-button:hover { color: var(--netflix-red); }
-.detail-hero { position: relative; width: 100%; display: flex; align-items: center; justify-content: center; padding: 100px 0; }
-.detail-hero-background { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-size: cover; background-position: center; filter: blur(20px) brightness(0.4); transform: scale(1.1); }
-.detail-hero::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(20,20,20,1) 0%, rgba(20,20,20,0.6) 50%, rgba(20,20,20,1) 100%); }
-.detail-content-wrapper { position: relative; z-index: 2; display: flex; gap: 40px; max-width: 1200px; padding: 0 50px; width: 100%; }
-.detail-poster { width: 300px; height: 450px; flex-shrink: 0; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); object-fit: cover; }
-.detail-info { flex-grow: 1; max-width: 65%; }
-.detail-title { font-family: 'Bebas Neue', sans-serif; font-size: 4.5rem; font-weight: 700; line-height: 1.1; margin-bottom: 20px; }
-.detail-meta { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 25px; font-size: 1rem; color: var(--text-dark); }
-.detail-meta span { font-weight: 700; color: var(--text-light); }
-.detail-overview { font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
-.quality-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
-.watch-now-btn { background-color: var(--netflix-red); color: white; padding: 12px 25px; font-size: 1rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; transition: transform 0.2s ease, background-color 0.2s ease; }
-.watch-now-btn:hover { transform: scale(1.05); background-color: #f61f29; }
-.admin-container { padding: 100px 20px 40px; max-width: 800px; margin: 0 auto; }
-.admin-form { background: #222; padding: 25px; border-radius: 8px; }
-.form-group { margin-bottom: 15px; } .form-group label { display: block; margin-bottom: 8px; font-weight: bold; }
-input[type="text"], input[type="url"], input[type="password"], textarea { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid #333; font-size: 1rem; background: #333; color: var(--text-light); }
-.admin-form button { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; width: 100%; }
-.flash-msg { padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
-.flash-msg.success { background-color: #1f4e2c; color: #d4edda; } .flash-msg.error { background-color: #721c24; color: #f8d7da; }
-.table-responsive { overflow-x: auto; } .content-table { width: 100%; border-collapse: collapse; }
-.content-table th, .content-table td { padding: 12px; text-align: left; border-bottom: 1px solid #333; white-space: nowrap; }
-.content-table th { background: #252525; } .action-buttons { display: flex; gap: 10px; }
-.action-buttons a { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; }
-.edit-btn { background: #0d6efd; } .delete-btn { background: #dc3545; }
-.type-badge { background-color: #0dcaf0; color: #000; padding: 0.25em 0.5em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; text-transform: uppercase; }
-.cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
-@media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
-"""
-
 # ======================================================================
 # --- সহায়ক ফাংশন (Helper Functions) ---
 # ======================================================================
@@ -324,6 +329,7 @@ def login_required(f):
 
 def parse_filename(filename):
     """ফাইলের নাম থেকে মুভি/সিরিজের তথ্য পার্স করে"""
+    if not filename: return None
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
     quality_match = re.search(r'(\d{3,4}p)', cleaned_name, re.IGNORECASE)
     quality = quality_match.group(1).lower() if quality_match else 'HD'
@@ -340,6 +346,7 @@ def parse_filename(filename):
 
 def get_tmdb_info(parsed_info):
     """TMDb API থেকে মুভি/সিরিজের তথ্য আনে"""
+    if not parsed_info: return None
     api_url = f"https://api.themoviedb.org/3/search/{parsed_info['type']}"
     params = {'api_key': TMDB_API_KEY, 'query': parsed_info['title']}
     if parsed_info['type'] == 'movie' and 'year' in parsed_info: 
@@ -370,7 +377,7 @@ def get_tmdb_info(parsed_info):
     return None
 
 # ======================================================================
-# --- প্রধান রাউট (Main Routes) ---
+# --- প্রধান এবং স্ট্রিমিং রাউট ---
 # ======================================================================
 
 @app.route('/')
@@ -381,7 +388,7 @@ def index():
         return render_template_string(INDEX_TEMPLATE, contents=all_content, css_code=CSS_CODE)
     except Exception as e:
         print(f"Error at index route: {e}")
-        return "An error occurred on the homepage.", 500
+        abort(500, "An error occurred on the homepage.")
 
 @app.route('/content/<content_id>')
 def content_detail(content_id):
@@ -396,36 +403,39 @@ def content_detail(content_id):
         print(f"Error at content_detail for ID {content_id}: {e}")
         abort(404)
 
-@app.route('/play/<content_id>/<quality>')
-def play_content(content_id, quality):
-    if content_collection is None: return "Database connection failed.", 500
+@app.route('/stream/<content_id>/<quality>')
+def stream_content(content_id, quality):
+    if content_collection is None: abort(503, "Database service is unavailable.")
     try:
         content = content_collection.find_one({'_id': ObjectId(content_id)})
-        if not content: abort(404, "Content not found")
+        if not content: abort(404, "Content not found.")
 
         quality_data = content.get('qualities', {}).get(quality)
         if not quality_data or 'file_id' not in quality_data:
-            abort(404, "File ID for this quality not found")
+            abort(404, "File for this quality is not available.")
         
         file_id = quality_data['file_id']
-        
-        r = requests.get(f"{TELEGRAM_API_URL}/getFile", params={'file_id': file_id})
-        r.raise_for_status()
-        file_info = r.json()
+        file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile", params={'file_id': file_id})
+        file_info_res.raise_for_status()
+        file_info = file_info_res.json()
 
-        if not file_info.get('ok'):
-            abort(500, "Failed to get file info from Telegram")
+        if not file_info.get('ok'): abort(500, "Failed to get file info from Telegram.")
             
         file_path = file_info['result']['file_path']
         telegram_file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
         
-        return redirect(telegram_file_url)
+        req = requests.get(telegram_file_url, stream=True)
+        
+        def generate_chunks():
+            for chunk in req.iter_content(chunk_size=1024 * 1024):
+                if chunk: yield chunk
 
+        return Response(stream_with_context(generate_chunks()), content_type=req.headers['content-type'])
     except requests.exceptions.HTTPError as e:
-        print(f"HTTP Error from Telegram for file_id {file_id}: {e.response.text}")
-        abort(502, "Error communicating with Telegram API")
+        print(f"HTTP Error while streaming: {e.response.text}")
+        abort(502, "Error communicating with Telegram for streaming.")
     except Exception as e:
-        print(f"Error at play_content for ID {content_id}: {e}")
+        print(f"General error in stream_content: {e}")
         abort(500)
 
 # ======================================================================
@@ -456,11 +466,7 @@ def admin_edit(content_id):
     content = content_collection.find_one({'_id': ObjectId(content_id)})
     if not content: abort(404)
     if request.method == 'POST':
-        updated_data = {
-            'title': request.form['title'], 
-            'description': request.form['description'], 
-            'poster_url': request.form['poster_url']
-        }
+        updated_data = {'title': request.form['title'], 'description': request.form['description'], 'poster_url': request.form['poster_url']}
         content_collection.update_one({'_id': ObjectId(content_id)}, {'$set': updated_data})
         flash('Content updated successfully!', 'success')
         return redirect(url_for('admin_dashboard'))
@@ -491,36 +497,25 @@ def telegram_webhook():
     if content_collection is None:
         print("Webhook received but DB not connected. Aborting.")
         return jsonify(status='db_error'), 500
-
     try:
         data = request.get_json()
-        
-        # --- চ্যানেলে ফাইল পোস্ট হলে ---
         if 'channel_post' in data:
             post = data['channel_post']
             if str(post.get('chat', {}).get('id')) == ADMIN_CHANNEL_ID:
                 file = post.get('video') or post.get('document')
-                if file:
-                    process_new_content(file, post['message_id'])
-
-        # --- বটে মেসেজ এলে ---
+                if file: process_new_content(file, post['message_id'])
         elif 'message' in data:
             message = data['message']
-            chat_id = message['chat']['id']
-            text = message.get('text', '')
-            if text.startswith('/start get_'):
-                process_get_command(text, chat_id)
-
+            if message.get('text', '').startswith('/start get_'):
+                process_get_command(message['text'], message['chat']['id'])
     except Exception as e:
         print(f"CRITICAL ERROR in webhook: {e}")
-
     return jsonify(status='ok')
 
 def process_new_content(file_data, message_id):
     """নতুন কনটেন্ট প্রসেস করে ডাটাবেজে সেভ করে"""
     file_id = file_data.get('file_id')
     filename = file_data.get('file_name', '')
-    
     parsed_info = parse_filename(filename)
     if not parsed_info:
         print(f"Could not parse filename: {filename}")
@@ -532,15 +527,11 @@ def process_new_content(file_data, message_id):
         return
 
     existing_content = content_collection.find_one({'original_title': tmdb_data['original_title']})
-    
     quality_data = {'message_id': message_id, 'file_id': file_id}
     quality_key = f"qualities.{parsed_info['quality']}"
 
     if existing_content:
-        content_collection.update_one(
-            {'_id': existing_content['_id']},
-            {'$set': {quality_key: quality_data}}
-        )
+        content_collection.update_one({'_id': existing_content['_id']}, {'$set': {quality_key: quality_data}})
         print(f"SUCCESS: Updated quality '{parsed_info['quality']}' for '{existing_content['title']}'")
     else:
         tmdb_data['qualities'] = {parsed_info['quality']: quality_data}
@@ -559,8 +550,7 @@ def process_get_command(text, chat_id):
             message_id = content['qualities'][quality]['message_id']
             payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id}
             response = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
-            if not response.json().get('ok'):
-                print(f"Error copying message to {chat_id}: {response.text}")
+            if not response.json().get('ok'): print(f"Error copying message to {chat_id}: {response.text}")
         else:
             requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Sorry, the requested content or quality could not be found."})
     except Exception as e:
@@ -572,4 +562,4 @@ def process_get_command(text, chat_id):
 # ======================================================================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=True) # ডিবাগিং এর জন্য debug=True ব্যবহার করুন, প্রোডাকশনে False করে দেবেন।
