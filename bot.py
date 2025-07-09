@@ -1,457 +1,711 @@
 import os
 import re
 import requests
-from flask import Flask, request, jsonify, abort, render_template_string, redirect, url_for, session, flash
+from flask import Flask, render_template_string, request, redirect, url_for, Response
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 from functools import wraps
+from datetime import datetime
 
 # ======================================================================
 # --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য ---
 # ======================================================================
-MONGO_URI = "mongodb+srv://mesohas358:mesohas358@cluster0.6kxy1vc.mongodb.net/movie_database?retryWrites=true&w=majority&appName=Cluster0"
+MONGO_URI = "mongodb+srv://mesohas358:mesohas358@cluster0.6kxy1vc.mongodb.net/movie_db?retryWrites=true&w=majority&appName=Cluster0"
 BOT_TOKEN = "7931162174:AAGK8aSdqoYpZ4bsSXp36dp6zbVnYeenowA"
 TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
 ADMIN_CHANNEL_ID = "-1002853936940"
-BOT_USERNAME = "CTGVideoPlayerBot"
-ADMIN_USER = "Nahid270"
-ADMIN_PASS = "Nahid270"
+ADMIN_USERNAME = "Nahid270"
+ADMIN_PASSWORD = "Nahid270"
 # ======================================================================
 
 # --- অ্যাপ্লিকেশন সেটআপ ---
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
 
-# --- ডাটাবেস ও TMDb জেনার কানেকশন ---
-content_collection = None
-TMDB_GENRES = {}
+# --- অ্যাডমিন অথেন্টিকেশন ফাংশন ---
+def check_auth(username, password):
+    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 
+def authenticate():
+    return Response('Could not verify your access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
+
+# --- ডাটাবেস কানেকশন ---
 try:
     client = MongoClient(MONGO_URI)
-    db = client.get_database() 
-    content_collection = db.content
-    client.admin.command('ping')
-    print("SUCCESS: MongoDB Connected Successfully!")
+    db = client["movie_db"]
+    movies = db["movies"]
+    settings = db["settings"]
+    feedback = db["feedback"]
+    print("SUCCESS: Successfully connected to MongoDB!")
 except Exception as e:
-    print(f"FATAL: Could not connect to MongoDB. Error: {e}")
+    print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
+    exit(1)
 
-def load_tmdb_genres():
-    global TMDB_GENRES
-    if not TMDB_API_KEY:
-        print("WARNING: TMDB_API_KEY is not set. Cannot load genres.")
-        return
-    try:
-        for genre_type in ['movie', 'tv']:
-            url = f"https://api.themoviedb.org/3/genre/{genre_type}/list?api_key={TMDB_API_KEY}"
-            res = requests.get(url).json()
-            for genre in res.get('genres', []):
-                TMDB_GENRES[genre['id']] = genre['name']
-        print("SUCCESS: TMDb genres loaded successfully.")
-    except Exception as e:
-        print(f"WARNING: Could not load TMDb genres. Error: {e}")
+# --- Context Processor: বিজ্ঞাপনের কোড সহজলভ্য করার জন্য ---
+@app.context_processor
+def inject_ads():
+    ad_codes = settings.find_one()
+    return dict(ad_settings=(ad_codes or {}))
 
 # ======================================================================
-# --- HTML এবং CSS টেমপ্লেট ---
+# --- HTML টেমপ্লেট (নতুন ডিজাইন) ---
 # ======================================================================
-
-# INDEX_TEMPLATE, ADMIN_TEMPLATE আগের মতোই থাকবে, কোনো পরিবর্তনের প্রয়োজন নেই।
-# শুধু DETAIL_TEMPLATE কিছুটা সরল করা হবে।
-
-INDEX_TEMPLATE = """
+index_html = """
 <!DOCTYPE html>
-<html lang="bn">
+<html lang="en">
 <head>
-    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>MovieZone - Your Entertainment Hub</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
-    <style>{{ css_code|safe }}</style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>MovieZone - Your Entertainment Hub</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
+  :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; --nav-height: 60px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Roboto', sans-serif; background-color: var(--netflix-black); color: var(--text-light); overflow-x: hidden; }
+  a { text-decoration: none; color: inherit; }
+  ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #222; } ::-webkit-scrollbar-thumb { background: #555; } ::-webkit-scrollbar-thumb:hover { background: var(--netflix-red); }
+  .main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; z-index: 100; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
+  .main-nav.scrolled { background-color: var(--netflix-black); }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 32px; color: var(--netflix-red); font-weight: 700; letter-spacing: 1px; }
+  .search-input { background-color: rgba(0,0,0,0.7); border: 1px solid #777; color: var(--text-light); padding: 8px 15px; border-radius: 4px; transition: width 0.3s ease, background-color 0.3s ease; width: 250px; }
+  .search-input:focus { background-color: rgba(0,0,0,0.9); border-color: var(--text-light); outline: none; }
+  .tags-section { padding: 80px 50px 20px 50px; background-color: var(--netflix-black); }
+  .tags-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .tag-link { padding: 6px 16px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid #444; border-radius: 50px; font-weight: 500; font-size: 0.85rem; transition: all 0.3s; }
+  .tag-link:hover { background-color: var(--netflix-red); border-color: var(--netflix-red); color: white; }
+  .hero-section { height: 85vh; position: relative; color: white; overflow: hidden; }
+  .hero-slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-position: center top; display: flex; align-items: flex-end; padding: 50px; opacity: 0; transition: opacity 1.5s ease-in-out; z-index: 1; }
+  .hero-slide.active { opacity: 1; z-index: 2; }
+  .hero-slide::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, var(--netflix-black) 10%, transparent 50%), linear-gradient(to right, rgba(0,0,0,0.8) 0%, transparent 60%); }
+  .hero-content { position: relative; z-index: 3; max-width: 50%; }
+  .hero-title { font-family: 'Bebas Neue', sans-serif; font-size: 5rem; font-weight: 700; margin-bottom: 1rem; line-height: 1; }
+  .hero-overview { font-size: 1.1rem; line-height: 1.5; margin-bottom: 1.5rem; max-width: 600px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .hero-buttons .btn { padding: 8px 20px; margin-right: 0.8rem; border: none; border-radius: 4px; font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: opacity 0.3s ease; display: inline-flex; align-items: center; gap: 8px; }
+  .btn.btn-primary { background-color: var(--netflix-red); color: white; } .btn.btn-secondary { background-color: rgba(109, 109, 110, 0.7); color: white; } .btn:hover { opacity: 0.8; }
+  main { padding-top: 0; }
+  .carousel-row { margin: 40px 0; position: relative; }
+  .carousel-header { display: flex; justify-content: space-between; align-items: center; margin: 0 50px 15px 50px; }
+  .carousel-title { font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 1.6rem; margin: 0; }
+  .see-all-link { color: var(--text-dark); font-weight: 700; font-size: 0.9rem; }
+  .carousel-wrapper { position: relative; }
+  .carousel-content { display: flex; gap: 10px; padding: 0 50px; overflow-x: scroll; scrollbar-width: none; -ms-overflow-style: none; scroll-behavior: smooth; }
+  .carousel-content::-webkit-scrollbar { display: none; }
+  .carousel-arrow { position: absolute; top: 0; height: 100%; transform: translateY(0); background-color: rgba(20, 20, 20, 0.5); border: none; color: white; font-size: 2.5rem; cursor: pointer; z-index: 10; width: 50px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
+  .carousel-row:hover .carousel-arrow { opacity: 1; } .carousel-arrow.prev { left: 0; } .carousel-arrow.next { right: 0; }
+  .movie-card { flex: 0 0 16.66%; min-width: 220px; border-radius: 4px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; position: relative; background-color: #222; display: block; }
+  .movie-poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
+  .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 5px 10px; font-size: 12px; font-weight: 700; border-radius: 4px; z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+  .card-info-overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 20px 10px 10px 10px; background: linear-gradient(to top, rgba(0,0,0,0.95) 20%, transparent 100%); color: white; text-align: center; opacity: 0; transform: translateY(20px); transition: opacity 0.3s ease, transform 0.3s ease; z-index: 2; }
+  .card-info-title { font-size: 1rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes rgb-glow { 0% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } 33% { box-shadow: 0 0 12px #4158D0, 0 0 4px #4158D0; } 66% { box-shadow: 0 0 12px #C850C0, 0 0 4px #C850C0; } 100% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } }
+  @media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 5; animation: rgb-glow 2.5s infinite linear; } .movie-card:hover .card-info-overlay { opacity: 1; transform: translateY(0); } }
+  .full-page-grid-container { padding: 100px 50px 50px 50px; } .full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; } .full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; } .full-page-grid .movie-card { min-width: 0; }
+  .bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); background-color: #181818; border-top: 1px solid #282828; justify-content: space-around; align-items: center; z-index: 200; }
+  .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-dark); font-size: 10px; flex-grow: 1; padding: 5px 0; transition: color 0.2s ease; }
+  .nav-item i { font-size: 20px; margin-bottom: 4px; } .nav-item.active { color: var(--text-light); } .nav-item.active i { color: var(--netflix-red); }
+  .ad-container { margin: 40px 50px; display: flex; justify-content: center; align-items: center; }
+  .telegram-join-section { background-color: #181818; padding: 40px 20px; margin-top: 50px; text-align: center; }
+  .telegram-join-section .telegram-icon { font-size: 4rem; color: #2AABEE; margin-bottom: 15px; } .telegram-join-section h2 { font-family: 'Bebas Neue', sans-serif; font-size: 2.5rem; color: var(--text-light); margin-bottom: 10px; }
+  .telegram-join-section p { font-size: 1.1rem; color: var(--text-dark); max-width: 600px; margin: 0 auto 25px auto; }
+  .telegram-join-button { display: inline-flex; align-items: center; gap: 10px; background-color: #2AABEE; color: white; padding: 12px 30px; border-radius: 50px; font-size: 1.1rem; font-weight: 700; transition: all 0.2s ease; }
+  .telegram-join-button:hover { transform: scale(1.05); background-color: #1e96d1; } .telegram-join-button i { font-size: 1.3rem; }
+  @media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .search-input { width: 150px; }
+  .tags-section { padding: 80px 15px 15px 15px; } .tag-link { padding: 6px 15px; font-size: 0.8rem; } .hero-section { height: 60vh; }
+  .hero-slide { padding: 15px; align-items: center; } .hero-content { max-width: 90%; text-align: center; } .hero-title { font-size: 2.8rem; } .hero-overview { display: none; }
+  .carousel-row { margin: 25px 0; } .carousel-header { margin: 0 15px 10px 15px; } .carousel-title { font-size: 1.2rem; } .carousel-content { padding: 0 15px; gap: 8px; }
+  .movie-card { min-width: 130px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; }
+  .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .ad-container { margin: 25px 15px; }
+  .telegram-join-section h2 { font-size: 2rem; } .telegram-join-section p { font-size: 1rem; } }
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
 <body>
-    <header class="main-nav"><a href="{{ url_for('index') }}" class="logo">MovieZone</a></header>
-    <main>
-        <div class="search-container">
-            <form method="GET" action="{{ url_for('index') }}" class="search-form">
-                <input type="search" name="q" class="search-input" placeholder="Search for a movie or series..." value="{{ search_query or '' }}">
-                <button type="submit" class="search-button"><i class="fas fa-search"></i></button>
-            </form>
-        </div>
-        {% if is_search %}
-            <div class="content-section">
-                <h2 class="section-title">Search Results for '{{ search_query }}'</h2>
-                {% if contents|length == 0 %}<p class="no-results">No content found.</p>{% else %}
-                    <div class="content-grid">
-                        {% for content in contents %}
-                            <a href="{{ url_for('content_detail', content_id=content._id) }}" class="movie-card">
-                                <div class="poster-wrapper"><img class="movie-poster" loading="lazy" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}"></div>
-                                <div class="card-body">
-                                    <h4 class="card-title">{{ content.title }}</h4>
-                                    {% if content.release_year %}<p class="card-meta">{{ content.release_year }}</p>{% endif %}
-                                </div>
-                            </a>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            </div>
-        {% else %}
-            {% if featured %}<div class="hero-section" style="background-image: url('{{ featured.poster_url or '' }}');"><div class="hero-overlay"></div><div class="hero-content"><h1 class="hero-title">{{ featured.title }}</h1><p class="hero-description">{{ featured.description|truncate(150) }}</p><a href="{{ url_for('content_detail', content_id=featured._id) }}" class="hero-button"><i class="fas fa-info-circle"></i> View Details</a></div></div>{% endif %}
-            {% for category_name, content_list in categories.items() %}<div class="content-section"><h2 class="section-title">{{ category_name }}</h2><div class="content-carousel">
-                {% for content in content_list %}<a href="{{ url_for('content_detail', content_id=content._id) }}" class="movie-card"><div class="poster-wrapper"><img class="movie-poster" loading="lazy" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}"></div><div class="card-body"><h4 class="card-title">{{ content.title }}</h4>{% if content.release_year %}<p class="card-meta">{{ content.release_year }}</p>{% endif %}</div></a>{% endfor %}
-            </div></div>{% endfor %}
-        {% endif %}
-    </main>
-    <nav class="bottom-nav"><a href="{{ url_for('index') }}" class="nav-item active"><i class="fas fa-home"></i><span>Home</span></a><a href="{{ url_for('admin_login') if not session.get('logged_in') else url_for('admin_dashboard') }}" class="nav-item"><i class="fas fa-user-shield"></i><span>Admin</span></a></nav>
-    <script> const nav = document.querySelector('.main-nav'); if(nav){ window.addEventListener('scroll', () => { window.scrollY > 50 ? nav.classList.add('scrolled') : nav.classList.remove('scrolled'); }); } </script>
+<header class="main-nav"><a href="{{ url_for('home') }}" class="logo">MovieZone</a><form method="GET" action="/" class="search-form"><input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" /></form></header>
+<main>
+  {% macro render_movie_card(m) %}<a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">{% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}<img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}"><div class="card-info-overlay"><h4 class="card-info-title">{{ m.title }}</h4></div></a>{% endmacro %}
+  {% if is_full_page_list %}<div class="full-page-grid-container"><h2 class="full-page-grid-title">{{ query }}</h2>{% if movies|length == 0 %}<p style="text-align:center; color: var(--text-dark); margin-top: 40px;">No content found.</p>{% else %}<div class="full-page-grid">{% for m in movies %}{{ render_movie_card(m) }}{% endfor %}</div>{% endif %}</div>
+  {% else %}
+    {% if all_badges %}<div class="tags-section"><div class="tags-container">{% for badge in all_badges %}<a href="{{ url_for('movies_by_badge', badge_name=badge) }}" class="tag-link">{{ badge }}</a>{% endfor %}</div></div>{% endif %}
+    {% if recently_added %}<div class="hero-section">{% for movie in recently_added %}<div class="hero-slide {% if loop.first %}active{% endif %}" style="background-image: url('{{ movie.poster or '' }}');"><div class="hero-content"><h1 class="hero-title">{{ movie.title }}</h1><p class="hero-overview">{{ movie.overview }}</p><div class="hero-buttons">{% if movie.watch_link and not movie.is_coming_soon %}<a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="btn btn-primary"><i class="fas fa-play"></i> Watch Now</a>{% endif %}<a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-secondary"><i class="fas fa-info-circle"></i> More Info</a></div></div></div>{% endfor %}</div>{% endif %}
+    {% macro render_carousel(title, movies_list, endpoint) %}{% if movies_list %}<div class="carousel-row"><div class="carousel-header"><h2 class="carousel-title">{{ title }}</h2><a href="{{ url_for(endpoint) }}" class="see-all-link">See All ></a></div><div class="carousel-wrapper"><div class="carousel-content">{% for m in movies_list %}{{ render_movie_card(m) }}{% endfor %}</div><button class="carousel-arrow prev"><i class="fas fa-chevron-left"></i></button><button class="carousel-arrow next"><i class="fas fa-chevron-right"></i></button></div></div>{% endif %}{% endmacro %}
+    {{ render_carousel('Trending Now', trending_movies, 'trending_movies') }}
+    {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
+    {{ render_carousel('Latest Movies', latest_movies, 'movies_only') }}
+    {% if ad_settings.native_banner_code %}<div class="ad-container">{{ ad_settings.native_banner_code|safe }}</div>{% endif %}
+    {{ render_carousel('Web Series', latest_series, 'webseries') }}
+    {{ render_carousel('Recently Added', recently_added_full, 'recently_added_all') }}
+    {{ render_carousel('Coming Soon', coming_soon_movies, 'coming_soon') }}
+    <div class="telegram-join-section"><i class="fa-brands fa-telegram telegram-icon"></i><h2>Join Our Telegram Channel</h2><p>Get the latest movie updates, news, and direct download links right on your phone!</p><a href="https://t.me/+60goZWp-FpkxNzVl" target="_blank" class="telegram-join-button"><i class="fa-brands fa-telegram"></i> Join Main Channel</a></div>
+  {% endif %}
+</main>
+<nav class="bottom-nav"><a href="{{ url_for('home') }}" class="nav-item {% if request.endpoint == 'home' %}active{% endif %}"><i class="fas fa-home"></i><span>Home</span></a><a href="{{ url_for('genres_page') }}" class="nav-item {% if request.endpoint == 'genres_page' %}active{% endif %}"><i class="fas fa-layer-group"></i><span>Genres</span></a><a href="{{ url_for('contact') }}" class="nav-item {% if request.endpoint == 'contact' %}active{% endif %}"><i class="fas fa-envelope"></i><span>Request</span></a></nav>
+<script>
+    const nav = document.querySelector('.main-nav');
+    window.addEventListener('scroll', () => { window.scrollY > 50 ? nav.classList.add('scrolled') : nav.classList.remove('scrolled'); });
+    document.querySelectorAll('.carousel-arrow').forEach(button => { button.addEventListener('click', () => { const carousel = button.closest('.carousel-wrapper').querySelector('.carousel-content'); const scroll = carousel.clientWidth * 0.8; carousel.scrollLeft += button.classList.contains('next') ? scroll : -scroll; }); });
+    document.addEventListener('DOMContentLoaded', function() { const slides = document.querySelectorAll('.hero-slide'); if (slides.length > 1) { let currentSlide = 0; const showSlide = (index) => slides.forEach((s, i) => s.classList.toggle('active', i === index)); setInterval(() => { currentSlide = (currentSlide + 1) % slides.length; showSlide(currentSlide); }, 5000); } });
+</script>
+{% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
+{% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
 </body>
 </html>
 """
 
-DETAIL_TEMPLATE = """
+detail_html = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>{{ content.title if content else "Not Found" }} - MovieZone</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
-    <style>{{ css_code|safe }}</style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>{{ movie.title if movie else "Content Not Found" }} - MovieZone</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
+  :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); }
+  .detail-header { position: absolute; top: 0; left: 0; right: 0; padding: 20px 50px; z-index: 100; }
+  .back-button { color: var(--text-light); font-size: 1.2rem; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 10px; transition: color 0.3s ease; }
+  .back-button:hover { color: var(--netflix-red); }
+  .detail-hero { position: relative; width: 100%; display: flex; align-items: center; justify-content: center; padding: 100px 0; }
+  .detail-hero-background { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-size: cover; background-position: center; filter: blur(20px) brightness(0.4); transform: scale(1.1); }
+  .detail-hero::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(20,20,20,1) 0%, rgba(20,20,20,0.6) 50%, rgba(20,20,20,1) 100%); }
+  .detail-content-wrapper { position: relative; z-index: 2; display: flex; gap: 40px; max-width: 1200px; padding: 0 50px; width: 100%; }
+  .detail-poster { width: 300px; height: 450px; flex-shrink: 0; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); object-fit: cover; }
+  .detail-info { flex-grow: 1; max-width: 65%; }
+  .detail-title { font-family: 'Bebas Neue', sans-serif; font-size: 4.5rem; font-weight: 700; line-height: 1.1; margin-bottom: 20px; }
+  .detail-meta { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 25px; font-size: 1rem; color: var(--text-dark); }
+  .detail-meta span { font-weight: 700; color: var(--text-light); }
+  .detail-overview { font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
+  .watch-now-btn { background-color: var(--netflix-red); color: white; padding: 15px 30px; font-size: 1.2rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; margin-bottom: 25px; transition: all 0.2s ease; }
+  .watch-now-btn:hover { transform: scale(1.05); background-color: #f61f29; }
+  .section-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; padding-bottom: 5px; border-bottom: 2px solid var(--netflix-red); display: inline-block; }
+  .video-container { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; background: #000; border-radius: 8px; }
+  .video-container iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  .download-section { margin-top: 30px; }
+  .download-button, .episode-download-button { display: inline-block; padding: 12px 25px; background-color: #444; color: white; text-decoration: none; border-radius: 4px; font-weight: 700; transition: background-color 0.3s ease; margin-right: 10px; margin-bottom: 10px; text-align: center; vertical-align: middle; }
+  .copy-button { background-color: #555; color: white; border: none; padding: 8px 15px; font-size: 0.9rem; cursor: pointer; border-radius: 4px; margin-left: -5px; margin-bottom: 10px; vertical-align: middle; }
+  .episode-item { margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333; }
+  .episode-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 8px; color: #fff; }
+  .ad-container { margin: 30px 0; text-align: center; }
+  .related-section-container { padding: 40px 0; background-color: #181818; }
+  .carousel-row { margin: 40px 0; position: relative; } .carousel-wrapper { position: relative; }
+  .carousel-content { display: flex; gap: 10px; padding: 0 50px; overflow-x: scroll; scrollbar-width: none; scroll-behavior: smooth; }
+  .carousel-content::-webkit-scrollbar { display: none; }
+  .carousel-arrow { position: absolute; top: 0; height: 100%; background-color: rgba(20, 20, 20, 0.5); border: none; color: white; font-size: 2.5rem; cursor: pointer; z-index: 10; width: 50px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
+  .carousel-row:hover .carousel-arrow { opacity: 1; } .carousel-arrow.prev { left: 0; } .carousel-arrow.next { right: 0; }
+  .related-movie-card-wrapper { flex: 0 0 16.66%; min-width: 220px; }
+  .movie-card { width: 100%; border-radius: 4px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease; display: block; position: relative; }
+  .movie-poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
+  .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 5px 10px; font-size: 12px; font-weight: 700; border-radius: 4px; z-index: 3; }
+  @keyframes rgb-glow { 0% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } 33% { box-shadow: 0 0 12px #4158D0, 0 0 4px #4158D0; } 66% { box-shadow: 0 0 12px #C850C0, 0 0 4px #C850C0; } 100% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } }
+  @media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 5; animation: rgb-glow 2.5s infinite linear; } }
+  @media (max-width: 992px) { .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } }
+  @media (max-width: 768px) { .detail-header { padding: 20px; } .detail-hero { padding: 80px 20px 40px; } .detail-poster { width: 60%; max-width: 220px; height: auto; } .detail-title { font-size: 2.2rem; }
+  .watch-now-btn, .download-button, .episode-download-button, .copy-button { display: block; width: 100%; max-width: 320px; margin: 0 auto 10px auto; }
+  .section-title { margin-left: 15px !important; } .related-section-container { padding: 20px 0; } .carousel-content { padding: 0 15px; } .related-movie-card-wrapper { min-width: 130px; } .carousel-arrow { display: none; } }
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
 <body>
-    <header class="detail-header"><a href="{{ url_for('index') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
-    {% if content %}
-    <div class="detail-hero" style="min-height: auto; padding-bottom: 60px;">
-      <div class="detail-hero-background" style="background-image: url('{{ content.poster_url }}');"></div>
-      <div class="detail-content-wrapper">
-        <img class="detail-poster" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}">
-        <div class="detail-info">
-          <h1 class="detail-title">{{ content.title }}</h1>
-          <div class="detail-meta">
-            {% if content.release_year %}<span>{{ content.release_year }}</span>{% endif %}
-            {% if content.rating %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>{% endif %}
-            {% if content.genres %}<span class="genres">{% for genre in content.genres %}{{ genre }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
-          </div>
-          <p class="detail-overview">{{ content.description }}</p>
-          <h5 class="mb-3">Get from Bot</h5>
-          <div class="quality-buttons">
-            <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}" class="watch-now-btn" target="_blank">
-                <i class="fas fa-robot"></i> Get File
-            </a>
-          </div>
-          <p class="text-muted small mt-3">এই লিঙ্কে ক্লিক করলে আপনাকে সরাসরি টেলিগ্রাম বটে নিয়ে যাওয়া হবে এবং ফাইলটি পাঠিয়ে দেওয়া হবে।</p>
-        </div>
+{% macro render_movie_card(m) %}<a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">{% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}<img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}"></a>{% endmacro %}
+<header class="detail-header"><a href="{{ url_for('home') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
+{% if movie %}
+<div class="detail-hero" style="min-height: auto; padding-bottom: 60px;">
+  <div class="detail-hero-background" style="background-image: url('{{ movie.poster }}');"></div>
+  <div class="detail-content-wrapper"><img class="detail-poster" src="{{ movie.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ movie.title }}">
+    <div class="detail-info">
+      <h1 class="detail-title">{{ movie.title }}</h1>
+      <div class="detail-meta">{% if movie.release_date %}<span>{{ movie.release_date.split('-')[0] }}</span>{% endif %}{% if movie.vote_average %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(movie.vote_average) }}</span>{% endif %}{% if movie.genres %}<span>{{ movie.genres | join(' • ') }}</span>{% endif %}</div>
+      <p class="detail-overview">{{ movie.overview }}</p>
+      {% if movie.watch_link and movie.type == 'movie' and not movie.is_coming_soon %}<a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="watch-now-btn"><i class="fas fa-play"></i> Watch Now</a>{% endif %}
+      {% if movie.message_id and not movie.is_coming_soon %}<a href="https://t.me/{{ bot_username }}?start={{ movie._id }}" class="watch-now-btn"><i class="fa-brands fa-telegram"></i> Get from Telegram</a>{% endif %}
+      {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
+      {% if trailer_key %}<div class="trailer-section"><h3 class="section-title">Watch Trailer</h3><div class="video-container"><iframe src="https://www.youtube.com/embed/{{ trailer_key }}" frameborder="0" allowfullscreen></iframe></div></div>{% endif %}
+      {% if ad_settings.native_banner_code %}<div class="ad-container">{{ ad_settings.native_banner_code|safe }}</div>{% endif %}
+      <div style="margin: 20px 0;"><a href="{{ url_for('contact', report_id=movie._id, title=movie.title) }}" class="download-button" style="background-color:#5a5a5a; text-align:center;"><i class="fas fa-flag"></i> Report a Problem</a></div>
+      <div class="download-section">
+        {% if movie.is_coming_soon %}<h3 class="section-title">Coming Soon</h3>
+        {% elif movie.type == 'movie' and movie.links %}<h3 class="section-title">Download Links</h3>{% for link_item in movie.links %}<div><a class="download-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> {{ link_item.quality }}</a><button class="copy-button" onclick="copyToClipboard('{{ link_item.url }}')"><i class="fas fa-copy"></i></button></div>{% endfor %}
+        {% elif movie.type == 'series' and movie.episodes %}<h3 class="section-title">Episodes</h3>{% for episode in movie.episodes | sort(attribute='episode_number') %}<div class="episode-item"><h4 class="episode-title">E{{ episode.episode_number }}: {{ episode.title }}</h4>{% if episode.watch_link %}<a href="{{ url_for('watch_movie', movie_id=movie._id, ep=episode.episode_number) }}" class="episode-download-button" style="background-color: var(--netflix-red);"><i class="fas fa-play"></i> Watch</a>{% endif %}{% if episode.links %}{% for link_item in episode.links %}<div><a class="episode-download-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> {{ link_item.quality }}</a><button class="copy-button" onclick="copyToClipboard('{{ link_item.url }}')"><i class="fas fa-copy"></i></button></div>{% endfor %}{% endif %}</div>{% endfor %}
+        {% endif %}
       </div>
     </div>
-    {% else %}
-    <div style="display:flex; justify-content:center; align-items:center; height:100vh;"><h2>Content not found.</h2></div>
-    {% endif %}
+  </div>
+</div>
+{% if related_movies %}<div class="related-section-container"><div class="carousel-row" style="margin-top: 20px; margin-bottom: 20px;"><h3 class="section-title" style="margin-left: 50px; border-color: var(--netflix-red); color: white;">You Might Also Like</h3><div class="carousel-wrapper"><div class="carousel-content">{% for m in related_movies %}<div class="related-movie-card-wrapper">{{ render_movie_card(m) }}</div>{% endfor %}</div><button class="carousel-arrow prev"><i class="fas fa-chevron-left"></i></button><button class="carousel-arrow next"><i class="fas fa-chevron-right"></i></button></div></div></div>{% endif %}
+{% else %}<div style="display:flex; justify-content:center; align-items:center; height:100vh;"><h2>Content not found.</h2></div>{% endif %}
+<script>
+function copyToClipboard(text) { navigator.clipboard.writeText(text).then(() => alert('Link copied!'), () => alert('Copy failed!')); }
+document.querySelectorAll('.carousel-arrow').forEach(button => { button.addEventListener('click', () => { const carousel = button.closest('.carousel-wrapper').querySelector('.carousel-content'); const scrollAmount = carousel.clientWidth * 0.8; carousel.scrollLeft += button.classList.contains('next') ? scrollAmount : -scrollAmount; }); });
+</script>
+{% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
+{% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
 </body>
 </html>
 """
 
-ADMIN_TEMPLATE = """
+genres_html = """
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>Admin Panel - MovieZone</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
-    <style>{{ css_code|safe }}</style>
-</head>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" /><title>{{ title }} - MovieZone</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
+  :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; }
+  * { box-sizing: border-box; margin: 0; padding: 0; } body { font-family: 'Roboto', sans-serif; background-color: var(--netflix-black); color: var(--text-light); } a { text-decoration: none; color: inherit; }
+  .main-container { padding: 100px 50px 50px; } .page-title { font-family: 'Bebas Neue', sans-serif; font-size: 3rem; color: var(--netflix-red); margin-bottom: 30px; }
+  .back-button { color: var(--text-light); font-size: 1rem; margin-bottom: 20px; display: inline-block; } .back-button:hover { color: var(--netflix-red); }
+  .genre-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+  .genre-card { background: linear-gradient(45deg, #2c2c2c, #1a1a1a); border-radius: 8px; padding: 30px 20px; text-align: center; font-size: 1.4rem; font-weight: 700; transition: all 0.3s ease; border: 1px solid #444; }
+  .genre-card:hover { transform: translateY(-5px) scale(1.03); background: linear-gradient(45deg, var(--netflix-red), #b00710); border-color: var(--netflix-red); }
+  @media (max-width: 768px) { .main-container { padding: 80px 15px 30px; } .page-title { font-size: 2.2rem; } .genre-grid { grid-template-columns: repeat(2, 1fr); gap: 15px; } .genre-card { font-size: 1.1rem; padding: 25px 15px; } }
+</style><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css"></head>
 <body>
-    <header class="main-nav"><a href="{{ url_for('index') }}" class="logo">MovieZone</a>{% if session.get('logged_in') %}<a href="{{ url_for('admin_logout') }}" class="btn btn-sm btn-outline-light" style="color:white; border-color:white; text-decoration:none;">Logout</a>{% endif %}</header>
-    <main>
-        <div class="admin-container">
-            {% if page_type == 'login' %}
-                <h2>Admin Login</h2>
-                {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}{% endwith %}
-                <form method="post" class="admin-form">
-                    <div class="form-group"><label for="username">Username</label><input type="text" name="username" required></div>
-                    <div class="form-group"><label for="password">Password</label><input type="password" name="password" required></div>
-                    <button type="submit">Login</button>
-                </form>
-            {% elif page_type == 'dashboard' %}
-                <h2>Admin Dashboard</h2>
-                {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}{% endwith %}
-                <div class="table-responsive">
-                    <table class="content-table">
-                        <thead><tr><th>Poster</th><th>Title</th><th>Type</th><th>Actions</th></tr></thead>
-                        <tbody>
-                            {% for content in contents %}
-                            <tr>
-                                <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
-                                <td style="max-width: 300px; white-space: normal;">{{ content.title }}</td>
-                                <td><span class="type-badge type-{{content.type}}">{{ content.type }}</span></td>
-                                <td class="action-buttons">
-                                    <a href="{{ url_for('admin_edit', content_id=content._id) }}" class="edit-btn">Edit</a>
-                                    <a href="{{ url_for('admin_delete', content_id=content._id) }}" class="delete-btn" onclick="return confirm('Are you sure?');">Delete</a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            {% elif page_type == 'edit' %}
-                <h2>Edit: {{ content.title }}</h2>
-                <form method="post" class="admin-form"><div class="form-group"><label for="title">Title</label><input type="text" name="title" value="{{ content.title }}" required></div><div class="form-group"><label for="description">Description</label><textarea name="description" rows="5">{{ content.description }}</textarea></div><div class="form-group"><label for="poster_url">Poster URL</label><input type="url" name="poster_url" value="{{ content.poster_url }}"></div><button type="submit">Save Changes</button><a href="{{ url_for('admin_dashboard') }}" class="cancel-link">Cancel</a></form>
-            {% endif %}
-        </div>
-    </main>
-</body>
-</html>
+<div class="main-container"><a href="{{ url_for('home') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a><h1 class="page-title">{{ title }}</h1>
+<div class="genre-grid">{% for genre in genres %}<a href="{{ url_for('movies_by_genre', genre_name=genre) }}" class="genre-card"><span>{{ genre }}</span></a>{% endfor %}</div></div>
+{% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
+{% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
+</body></html>
 """
 
-CSS_CODE = """
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
-:root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; --nav-height: 60px; --card-gap: 15px; }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Roboto', sans-serif; background-color: var(--netflix-black); color: var(--text-light); overflow-x: hidden; }
-a { text-decoration: none; color: inherit; }
-.main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; z-index: 1000; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
-.main-nav.scrolled { background-color: var(--netflix-black); }
-.logo { font-family: 'Bebas Neue', sans-serif; font-size: 32px; color: var(--netflix-red); font-weight: 700; letter-spacing: 1px; }
-.search-container { padding: 90px 50px 0px 50px; display: flex; justify-content: center; margin-bottom: 30px; }
-.search-form { position: relative; width: 100%; max-width: 600px; }
-.search-input { width: 100%; padding: 15px 50px 15px 20px; font-size: 1rem; color: var(--text-light); background-color: #333; border: 1px solid #444; border-radius: 4px; }
-.search-input:focus { outline: none; border-color: var(--netflix-red); box-shadow: 0 0 0 3px rgba(229, 9, 20, 0.25); }
-.search-input::placeholder { color: var(--text-dark); }
-.search-button { position: absolute; top: 0; right: 0; bottom: 0; background: transparent; border: none; color: var(--text-dark); padding: 0 15px; cursor: pointer; font-size: 1.2rem; }
-.no-results { text-align:center; color: var(--text-dark); margin-top: 40px; font-size: 1.2rem; }
-.hero-section { position: relative; height: 60vh; min-height: 450px; display: flex; align-items: flex-end; padding: 50px; background-size: cover; background-position: center top; margin-top: calc(-1 * var(--nav-height)); }
-.hero-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, var(--netflix-black) 10%, transparent 50%), linear-gradient(to right, rgba(20,20,20,0.7) 0%, transparent 60%); }
-.hero-content { position: relative; z-index: 2; max-width: 50%; }
-.hero-title { font-family: 'Bebas Neue', sans-serif; font-size: 4rem; margin-bottom: 15px; line-height: 1; text-shadow: 2px 2px 10px rgba(0,0,0,0.7); }
-.hero-description { font-size: 1.1rem; line-height: 1.5; margin-bottom: 25px; color: var(--text-light); text-shadow: 1px 1px 5px rgba(0,0,0,0.5); }
-.hero-button { background-color: rgba(255, 255, 255, 0.9); color: #000; padding: 10px 25px; font-weight: 700; border-radius: 4px; display: inline-flex; align-items: center; gap: 10px; }
-.content-section { padding: 0 50px; margin-bottom: 40px; overflow: hidden; }
-.section-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 20px; }
-.content-carousel { display: flex; gap: var(--card-gap); overflow-x: auto; overflow-y: hidden; padding-bottom: 20px; margin: 0 -50px; padding-left: 50px; padding-right: 50px; scrollbar-width: none; -ms-overflow-style: none; }
-.content-carousel::-webkit-scrollbar { display: none; }
-.content-carousel .movie-card { flex: 0 0 calc((100% / 6) - var(--card-gap)); min-width: 160px; }
-.content-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--card-gap); }
-.movie-card { display: flex; flex-direction: column; background-color: transparent; transition: transform 0.2s ease-out; position: relative; z-index: 1; }
-.poster-wrapper { border-radius: 5px; overflow: hidden; position: relative; aspect-ratio: 2 / 3; background-color: #222; }
-.movie-poster { width: 100%; height: 100%; object-fit: cover; display: block; }
-.card-body { padding: 12px 5px 0 5px; }
-.card-title { font-size: 1rem; font-weight: 500; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-meta { font-size: 0.9rem; color: var(--text-dark); margin-top: 4px; }
-@media (hover: hover) { .movie-card:hover { transform: scale(1.1); z-index: 10; } .movie-card:hover .poster-wrapper { box-shadow: 0 0 20px rgba(0, 0, 0, 0.8); } }
-.bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); background-color: #181818; border-top: 1px solid #282828; justify-content: space-around; align-items: center; z-index: 200; }
-.nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-dark); font-size: 10px; flex-grow: 1; padding: 5px 0; }
-.nav-item i { font-size: 20px; margin-bottom: 4px; }
-.nav-item.active { color: var(--text-light); }
-.nav-item.active i { color: var(--netflix-red); }
-.detail-header { position: absolute; top: 0; left: 0; right: 0; padding: 20px 50px; z-index: 100; background: linear-gradient(to bottom, rgba(0,0,0,0.7) 10%, transparent); }
-.back-button { color: var(--text-light); font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
-.detail-hero { position: relative; width: 100%; display: flex; align-items: center; justify-content: center; padding: 120px 0 60px; }
-.detail-hero-background { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-size: cover; background-position: center; filter: blur(20px) brightness(0.4); transform: scale(1.1); }
-.detail-hero::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(20,20,20,1) 0%, rgba(20,20,20,0.6) 50%, rgba(20,20,20,1) 100%); }
-.detail-content-wrapper { position: relative; z-index: 2; display: flex; gap: 40px; max-width: 1200px; padding: 0 50px; width: 100%; }
-.detail-poster { width: 300px; height: 450px; flex-shrink: 0; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); object-fit: cover; }
-.detail-info { flex-grow: 1; max-width: 65%; }
-.detail-title { font-family: 'Bebas Neue', sans-serif; font-size: 4.5rem; font-weight: 700; line-height: 1.1; margin-bottom: 20px; }
-.detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 15px 20px; margin-bottom: 25px; font-size: 1rem; color: var(--text-dark); }
-.detail-meta span { font-weight: 700; color: var(--text-light); }
-.detail-meta .genres { font-weight: normal; color: var(--text-dark); }
-.detail-overview { font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
-.quality-buttons a.watch-now-btn { display: inline-block; margin-right: 10px; margin-bottom: 10px; }
-.watch-now-btn { background-color: var(--netflix-red); color: white; padding: 12px 25px; font-size: 1rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; }
-.admin-container { padding: 100px 20px 40px; max-width: 1000px; margin: 0 auto; }
-.admin-form { background: #222; padding: 25px; border-radius: 8px; }
+watch_html = """
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Watching: {{ title }}</title>
+<style> body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; } .player-container { width: 100%; height: 100%; } .player-container iframe { width: 100%; height: 100%; border: 0; } </style></head>
+<body><div class="player-container"><iframe src="{{ watch_link }}" allowfullscreen allowtransparency allow="autoplay" scrolling="no" frameborder="0"></iframe></div>
+{% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
+{% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
+</body></html>
+"""
+
+admin_html = """
+<!DOCTYPE html>
+<html><head><title>Admin Panel - MovieZone</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
+:root { --netflix-red: #E50914; --netflix-black: #141414; --dark-gray: #222; --light-gray: #333; --text-light: #f5f5f5; }
+body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); padding: 20px; }
+h2, h3 { font-family: 'Bebas Neue', sans-serif; color: var(--netflix-red); } h2 { font-size: 2.5rem; margin-bottom: 20px; } h3 { font-size: 1.5rem; margin: 20px 0 10px 0;}
+form { max-width: 800px; margin: 0 auto 40px auto; background: var(--dark-gray); padding: 25px; border-radius: 8px;}
 .form-group { margin-bottom: 15px; } .form-group label { display: block; margin-bottom: 8px; font-weight: bold; }
-input[type="text"], input[type="url"], input[type="password"], textarea { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid #333; font-size: 1rem; background: #333; color: var(--text-light); }
-.admin-form button { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; width: 100%; }
-.flash-msg { padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
-.flash-msg.success { background-color: #1f4e2c; color: #d4edda; } .flash-msg.error { background-color: #721c24; color: #f8d7da; }
-.table-responsive { overflow-x: auto; } .content-table { width: 100%; border-collapse: collapse; }
-.content-table th, .content-table td { padding: 12px; text-align: left; border-bottom: 1px solid #333; vertical-align: middle; }
-.content-table th { background: #252525; } .action-buttons { display: flex; gap: 10px; }
-.action-buttons a { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; font-size: 0.9em; }
-.edit-btn { background: #0d6efd; } .delete-btn { background: #dc3545; }
-.type-badge { display: inline-block; margin: 2px; color: #fff; padding: 0.25em 0.6em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; text-transform: uppercase; }
-.type-badge.type-movie { background-color: #198754; } .type-badge.type-tv { background-color: #fd7e14; }
-.cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
-@media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .search-container { padding: 80px 15px 0px 15px; } .hero-section { height: 50vh; padding: 15px; align-items: center; text-align: center; } .hero-content { max-width: 100%; } .hero-title { font-size: 2.5rem; } .hero-description { display: none; } .content-section { padding: 0 15px; margin-right: -15px; margin-left: -15px; } .content-carousel { margin: 0; padding-left: 15px; padding-right: 15px; } .content-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); } .content-carousel .movie-card { flex-basis: calc((100% / 3) - var(--card-gap)); min-width: 110px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; padding: 0 20px; } .detail-info { max-width: 100%; } .detail-title { font-size: 3rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
+input[type="text"], input[type="url"], textarea, select, input[type="number"], input[type="email"] { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid var(--light-gray); font-size: 1rem; background: var(--light-gray); color: var(--text-light); box-sizing: border-box; }
+input[type="checkbox"] { width: auto; margin-right: 10px; transform: scale(1.2); } textarea { resize: vertical; min-height: 100px; }
+button[type="submit"], .add-episode-btn { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; transition: background 0.3s ease; }
+button[type="submit"]:hover, .add-episode-btn:hover { background: #b00710; }
+table { display: block; overflow-x: auto; white-space: nowrap; width: 100%; border-collapse: collapse; margin-top: 20px; }
+th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--light-gray); } th { background: #252525; } td { background: var(--dark-gray); }
+.action-buttons { display: flex; gap: 10px; } .action-buttons a, .action-buttons button, .delete-btn { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; border: none; cursor: pointer; }
+.edit-btn { background: #007bff; } .delete-btn { background: #dc3545; }
+.episode-item { border: 1px solid var(--light-gray); padding: 15px; margin-bottom: 15px; border-radius: 5px; }
+hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray); margin: 40px 0; }
+</style><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head>
+<body>
+  <h2>বিজ্ঞাপন পরিচালনা (Ad Management)</h2>
+  <form action="{{ url_for('save_ads') }}" method="post"><div class="form-group"><label>Pop-Under / OnClick Ad Code</label><textarea name="popunder_code" rows="4">{{ ad_settings.popunder_code or '' }}</textarea></div><div class="form-group"><label>Social Bar / Sticky Ad Code</label><textarea name="social_bar_code" rows="4">{{ ad_settings.social_bar_code or '' }}</textarea></div><div class="form-group"><label>ব্যানার বিজ্ঞাপন কোড (Banner Ad)</label><textarea name="banner_ad_code" rows="4">{{ ad_settings.banner_ad_code or '' }}</textarea></div><div class="form-group"><label>নেটিভ ব্যানার বিজ্ঞাপন (Native Banner)</label><textarea name="native_banner_code" rows="4">{{ ad_settings.native_banner_code or '' }}</textarea></div><button type="submit">Save Ad Codes</button></form>
+  <hr class="section-divider">
+  <h2>Add New Content</h2>
+  <form method="post" action="{{ url_for('admin') }}"><div class="form-group"><label>Title (Required):</label><input type="text" name="title" required /></div><div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleEpisodeFields()"><option value="movie">Movie</option><option value="series">TV/Web Series</option></select></div><div id="movie_fields"><div class="form-group"><label>Watch Link (Embed URL):</label><input type="url" name="watch_link" /></div><hr><p>OR Download Links</p><div class="form-group"><label>480p Link:</label><input type="url" name="link_480p" /></div><div class="form-group"><label>720p Link:</label><input type="url" name="link_720p" /></div><div class="form-group"><label>1080p Link:</label><input type="url" name="link_1080p" /></div></div><div id="episode_fields" style="display: none;"><h3>Episodes</h3><div id="episodes_container"></div><button type="button" onclick="addEpisodeField()" class="add-episode-btn">Add Episode</button></div><hr style="margin: 20px 0;"><button type="submit">Add Content</button></form>
+  <hr class="section-divider">
+  <h2>Manage Content</h2>
+  <table><thead><tr><th>Title</th><th>Type</th><th>Actions</th></tr></thead><tbody>{% for movie in all_content %}<tr><td>{{ movie.title }}</td><td>{{ movie.type | title }}</td><td class="action-buttons"><a href="{{ url_for('edit_movie', movie_id=movie._id) }}" class="edit-btn">Edit</a><button class="delete-btn" onclick="confirmDelete('{{ movie._id }}', '{{ movie.title }}')">Delete</button></td></tr>{% endfor %}</tbody></table>
+  <hr class="section-divider">
+  <h2>User Feedback / Reports</h2>
+  {% if feedback_list %}<table><thead><tr><th>Date</th><th>Type</th><th>Title</th><th>Message</th><th>Email</th><th>Action</th></tr></thead><tbody>{% for item in feedback_list %}<tr><td style="min-width: 150px;">{{ item.timestamp.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ item.type }}</td><td>{{ item.content_title }}</td><td style="white-space: pre-wrap; min-width: 300px;">{{ item.message }}</td><td>{{ item.email or 'N/A' }}</td><td><a href="{{ url_for('delete_feedback', feedback_id=item._id) }}" class="delete-btn" onclick="return confirm('Delete this feedback?');">Delete</a></td></tr>{% endfor %}</tbody></table>{% else %}<p>No new feedback or reports.</p>{% endif %}
+  <script>function confirmDelete(id, title) { if (confirm('Delete "' + title + '"?')) window.location.href = '/delete_movie/' + id; }
+    function toggleEpisodeFields() { var isSeries = document.getElementById('content_type').value === 'series'; document.getElementById('episode_fields').style.display = isSeries ? 'block' : 'none'; document.getElementById('movie_fields').style.display = isSeries ? 'none' : 'block'; }
+    function addEpisodeField() { const c = document.getElementById('episodes_container'), d = document.createElement('div'); d.className = 'episode-item'; d.innerHTML = `<div class="form-group"><label>Ep Number:</label><input type="number" name="episode_number[]" required /></div><div class="form-group"><label>Ep Title:</label><input type="text" name="episode_title[]" required /></div><div class="form-group"><label>Watch Link:</label><input type="url" name="episode_watch_link[]" /></div><hr><p>OR Download Links</p><div class="form-group"><label>480p Link:</label><input type="url" name="episode_link_480p[]" /></div><div class="form-group"><label>720p Link:</label><input type="url" name="episode_link_720p[]" /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Ep</button>`; c.appendChild(d); }
+    document.addEventListener('DOMContentLoaded', toggleEpisodeFields);
+  </script>
+</body></html>
+"""
+
+edit_html = """
+<!DOCTYPE html>
+<html><head><title>Edit Content - MovieZone</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
+:root { --netflix-red: #E50914; --netflix-black: #141414; --dark-gray: #222; --light-gray: #333; --text-light: #f5f5f5; }
+body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); padding: 20px; }
+h2, h3 { font-family: 'Bebas Neue', sans-serif; color: var(--netflix-red); } h2 { font-size: 2.5rem; margin-bottom: 20px; } h3 { font-size: 1.5rem; margin: 20px 0 10px 0;}
+form { max-width: 800px; margin: 0 auto 40px auto; background: var(--dark-gray); padding: 25px; border-radius: 8px;}
+.form-group { margin-bottom: 15px; } .form-group label { display: block; margin-bottom: 8px; font-weight: bold; }
+input, textarea, select { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid var(--light-gray); font-size: 1rem; background: var(--light-gray); color: var(--text-light); box-sizing: border-box; }
+input[type="checkbox"] { width: auto; margin-right: 10px; transform: scale(1.2); } textarea { resize: vertical; min-height: 100px; }
+button[type="submit"], .add-episode-btn { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; }
+.back-to-admin { display: inline-block; margin-bottom: 20px; color: var(--netflix-red); text-decoration: none; font-weight: bold; }
+.episode-item { border: 1px solid var(--light-gray); padding: 15px; margin-bottom: 15px; border-radius: 5px; } .delete-btn { background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+</style><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head>
+<body>
+  <a href="{{ url_for('admin') }}" class="back-to-admin">← Back to Admin</a>
+  <h2>Edit: {{ movie.title }}</h2>
+  <form method="post">
+    <div class="form-group"><label>Title:</label><input type="text" name="title" value="{{ movie.title }}" required /></div>
+    <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleEpisodeFields()"><option value="movie" {% if movie.type == 'movie' %}selected{% endif %}>Movie</option><option value="series" {% if movie.type == 'series' %}selected{% endif %}>TV/Web Series</option></select></div>
+    <div id="movie_fields"><div class="form-group"><label>Watch Link:</label><input type="url" name="watch_link" value="{{ movie.watch_link or '' }}" /></div><hr><p>OR Download Links</p>
+      <div class="form-group"><label>480p Link:</label><input type="url" name="link_480p" value="{% for l in movie.links %}{% if l.quality == '480p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+      <div class="form-group"><label>720p Link:</label><input type="url" name="link_720p" value="{% for l in movie.links %}{% if l.quality == '720p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+      <div class="form-group"><label>1080p Link:</label><input type="url" name="link_1080p" value="{% for l in movie.links %}{% if l.quality == '1080p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+    </div>
+    <div id="episode_fields" style="display: none;"><h3>Episodes</h3><div id="episodes_container">
+      {% if movie.type == 'series' and movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') %}<div class="episode-item">
+        <div class="form-group"><label>Ep Number:</label><input type="number" name="episode_number[]" value="{{ ep.episode_number }}" required /></div>
+        <div class="form-group"><label>Ep Title:</label><input type="text" name="episode_title[]" value="{{ ep.title }}" required /></div>
+        <div class="form-group"><label>Watch Link:</label><input type="url" name="episode_watch_link[]" value="{{ ep.watch_link or '' }}" /></div><hr><p>OR Download Links</p>
+        <div class="form-group"><label>480p Link:</label><input type="url" name="episode_link_480p[]" value="{% for l in ep.links %}{% if l.quality=='480p'%}{{l.url}}{%endif%}{%endfor%}" /></div>
+        <div class="form-group"><label>720p Link:</label><input type="url" name="episode_link_720p[]" value="{% for l in ep.links %}{% if l.quality=='720p'%}{{l.url}}{%endif%}{%endfor%}" /></div>
+        <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Ep</button>
+      </div>{% endfor %}{% endif %}</div><button type="button" onclick="addEpisodeField()" class="add-episode-btn">Add Episode</button>
+    </div>
+    <hr style="margin: 20px 0;"><button type="submit">Update Content</button>
+  </form>
+  <script>function toggleEpisodeFields() { var isSeries = document.getElementById('content_type').value === 'series'; document.getElementById('episode_fields').style.display = isSeries ? 'block' : 'none'; document.getElementById('movie_fields').style.display = isSeries ? 'none' : 'block'; }
+    function addEpisodeField() { const c = document.getElementById('episodes_container'), d = document.createElement('div'); d.className = 'episode-item'; d.innerHTML = `<div class="form-group"><label>Ep Number:</label><input type="number" name="episode_number[]" required /></div><div class="form-group"><label>Ep Title:</label><input type="text" name="episode_title[]" required /></div><div class="form-group"><label>Watch Link:</label><input type="url" name="episode_watch_link[]" /></div><hr><p>OR Download Links</p><div class="form-group"><label>480p Link:</label><input type="url" name="episode_link_480p[]" /></div><div class="form-group"><label>720p Link:</label><input type="url" name="episode_link_720p[]" /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Ep</button>`; c.appendChild(d); }
+    document.addEventListener('DOMContentLoaded', toggleEpisodeFields);
+  </script>
+</body></html>
+"""
+
+contact_html = """
+<!DOCTYPE html>
+<html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Contact Us / Report - MovieZone</title><style>
+:root { --netflix-red: #E50914; --netflix-black: #141414; --dark-gray: #222; --light-gray: #333; --text-light: #f5f5f5; }
+body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+.contact-container { max-width: 600px; width: 100%; background: var(--dark-gray); padding: 30px; border-radius: 8px; }
+h2 { font-family: 'Bebas Neue', sans-serif; color: var(--netflix-red); font-size: 2.5rem; text-align: center; margin-bottom: 25px; }
+.form-group { margin-bottom: 20px; } label { display: block; margin-bottom: 8px; font-weight: bold; }
+input, select, textarea { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid var(--light-gray); font-size: 1rem; background: var(--light-gray); color: var(--text-light); box-sizing: border-box; }
+textarea { resize: vertical; min-height: 120px; } button[type="submit"] { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1.1rem; width: 100%; }
+.success-message { text-align: center; padding: 20px; background-color: #1f4e2c; color: #d4edda; border-radius: 5px; margin-bottom: 20px; }
+.back-link { display: block; text-align: center; margin-top: 20px; color: var(--netflix-red); text-decoration: none; font-weight: bold; }
+</style><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head>
+<body><div class="contact-container"><h2>Contact Us</h2>
+{% if message_sent %}<div class="success-message"><p>আপনার বার্তা সফলভাবে পাঠানো হয়েছে। ধন্যবাদ!</p></div><a href="{{ url_for('home') }}" class="back-link">← Back to Home</a>
+{% else %}<form method="post"><div class="form-group"><label for="type">বিষয় (Subject):</label><select name="type" id="type"><option value="Movie Request" {% if prefill_type == 'Problem Report' %}disabled{% endif %}>Movie/Series Request</option><option value="Problem Report" {% if prefill_type == 'Problem Report' %}selected{% endif %}>Report a Problem</option><option value="General Feedback">General Feedback</option></select></div><div class="form-group"><label for="content_title">মুভি/সিরিজের নাম (Title):</label><input type="text" name="content_title" id="content_title" value="{{ prefill_title }}" required></div><div class="form-group"><label for="message">আপনার বার্তা (Message):</label><textarea name="message" id="message" required></textarea></div><div class="form-group"><label for="email">আপনার ইমেইল (Optional):</label><input type="email" name="email" id="email"></div><input type="hidden" name="reported_content_id" value="{{ prefill_id }}"><button type="submit">Submit</button></form><a href="{{ url_for('home') }}" class="back-link">← Cancel</a>{% endif %}
+</div></body></html>
 """
 
 # ======================================================================
-# --- Helper Functions (ফাংশনগুলোতে প্রধান পরিবর্তন) ---
+# --- Helper Functions ---
 # ======================================================================
-
-@app.context_processor
-def inject_global_vars():
-    return dict(bot_username=BOT_USERNAME)
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'): return redirect(url_for('admin_login'))
-        return f(*args, **kwargs)
-    return decorated_function
 
 def parse_filename(filename):
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
-    base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|axxo|yify|pack|complete|final|dual audio|hindi).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
+    base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|pack|complete|final|dual audio|hindi).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', base_name, re.IGNORECASE)
     if series_match:
-        return {'type': 'tv', 'title': series_match.group(1).strip(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3))}
-    season_pack_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)', base_name, re.IGNORECASE)
-    if season_pack_match:
-        return {'type': 'tv', 'title': season_pack_match.group(1).strip(), 'season': int(season_pack_match.group(2)), 'episode': None}
+        return {'type': 'series', 'title': series_match.group(1).strip(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3))}
     movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', base_name, re.IGNORECASE)
     if movie_match:
         return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip()}
     return {'type': 'movie', 'title': base_name, 'year': None}
 
-def get_tmdb_info(parsed_info):
-    search_type = parsed_info['type']
-    api_url = f"https://api.themoviedb.org/3/search/{search_type}"
-    params = {'api_key': TMDB_API_KEY, 'query': parsed_info['title']}
-    if search_type == 'movie' and parsed_info.get('year'):
-        params['primary_release_year'] = parsed_info.get('year')
+def get_tmdb_details_from_api(title, content_type, year=None):
+    if not TMDB_API_KEY: return None
+    search_type = "tv" if content_type == "series" else "movie"
     try:
-        r = requests.get(api_url, params=params)
-        r.raise_for_status()
-        res = r.json()
-        if res.get('results'):
-            data = res['results'][0]
-            poster = data.get('poster_path')
-            genre_ids = data.get('genre_ids', [])
-            genres = [TMDB_GENRES.get(gid) for gid in genre_ids if TMDB_GENRES.get(gid)]
-            if search_type == 'movie':
-                title, year = data.get('title'), data.get('release_date', '')[:4]
-            else:
-                base_title = data.get('name')
-                if parsed_info.get('episode') is not None:
-                    title = f"{base_title} - S{parsed_info['season']:02d}E{parsed_info['episode']:02d}"
-                else:
-                    title = f"{base_title} - Season {parsed_info['season']} Pack"
-                year = data.get('first_air_date', '')[:4]
-            return {
-                'type': search_type, 'title': title, 'description': data.get('overview'),
-                'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None,
-                'release_year': year, 'rating': round(data.get('vote_average', 0), 1), 'genres': genres[:3]
-            }
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching TMDb info for '{parsed_info['title']}': {e}")
+        search_url = f"https://api.themoviedb.org/3/search/{search_type}?api_key={TMDB_API_KEY}&query={requests.utils.quote(title)}"
+        if year: search_url += f"&primary_release_year={year}"
+        search_res = requests.get(search_url, timeout=5).json()
+        if not search_res.get("results"): return None
+        
+        tmdb_id = search_res["results"][0].get("id")
+        detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}"
+        res = requests.get(detail_url, timeout=5).json()
+        
+        release_date = res.get("release_date") if search_type == "movie" else res.get("first_air_date")
+        
+        return {
+            "tmdb_id": tmdb_id,
+            "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None,
+            "overview": res.get("overview"), "release_date": release_date,
+            "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average")
+        }
+    except requests.RequestException as e:
+        print(f"TMDb API error for '{title}': {e}")
     return None
 
+def process_movie_list(movie_list):
+    for item in movie_list:
+        if '_id' in item: item['_id'] = str(item['_id'])
+    return movie_list
+
 # ======================================================================
-# --- Flask Routes ---
+# --- Main Flask Routes ---
 # ======================================================================
 
 @app.route('/')
-def index():
-    if content_collection is None: return "Database connection failed.", 500
-    search_query = request.args.get('q', '').strip()
-    if search_query:
-        query = {'title': {'$regex': search_query, '$options': 'i'}}
-        search_results = list(content_collection.find(query).sort('_id', -1))
-        return render_template_string(INDEX_TEMPLATE, is_search=True, contents=search_results, css_code=CSS_CODE, search_query=search_query)
-    else:
-        DESIRED_GENRES = ["Action", "Comedy", "Horror", "Thriller", "Science Fiction", "Drama"]
-        categories = {}
-        featured_content = content_collection.find_one(sort=[('_id', -1)])
-        categories['Latest Additions'] = list(content_collection.find().sort('_id', -1).limit(20))
-        for genre in DESIRED_GENRES:
-            content_list = list(content_collection.find({'genres': genre}).sort('_id', -1).limit(15))
-            if content_list: categories[genre] = content_list
-        return render_template_string(INDEX_TEMPLATE, is_search=False, featured=featured_content, categories=categories, css_code=CSS_CODE, search_query='')
+def home():
+    query = request.args.get('q')
+    if query:
+        movies_list = list(movies.find({"title": {"$regex": query, "$options": "i"}}).sort('_id', -1))
+        return render_template_string(index_html, movies=process_movie_list(movies_list), query=f'Results for "{query}"', is_full_page_list=True)
+    
+    all_badges = sorted([badge for badge in movies.distinct("poster_badge") if badge])
+    limit = 12
+    context = {
+        "trending_movies": process_movie_list(list(movies.find({"is_trending": True, "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
+        "latest_movies": process_movie_list(list(movies.find({"type": "movie", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
+        "latest_series": process_movie_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
+        "coming_soon_movies": process_movie_list(list(movies.find({"is_coming_soon": True}).sort('_id', -1).limit(limit))),
+        "recently_added": process_movie_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(6))),
+        "recently_added_full": process_movie_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
+        "is_full_page_list": False, "query": "", "all_badges": all_badges
+    }
+    return render_template_string(index_html, **context)
 
-@app.route('/content/<content_id>')
-def content_detail(content_id):
-    if content_collection is None: return "Database connection failed.", 500
+@app.route('/movie/<movie_id>')
+def movie_detail(movie_id):
     try:
-        content = content_collection.find_one({'_id': ObjectId(content_id)})
-        if content: return render_template_string(DETAIL_TEMPLATE, content=content, css_code=CSS_CODE)
-        else: abort(404)
-    except: abort(404)
+        movie = movies.find_one({"_id": ObjectId(movie_id)})
+        if not movie: return "Content not found", 404
+        
+        related_movies = []
+        if movie.get("genres"):
+            related_movies = list(movies.find({"genres": {"$in": movie["genres"]}, "_id": {"$ne": ObjectId(movie_id)}}).limit(12))
+        
+        trailer_key = None
+        if movie.get("tmdb_id"):
+            tmdb_type = "tv" if movie.get("type") == "series" else "movie"
+            video_url = f"https://api.themoviedb.org/3/{tmdb_type}/{movie['tmdb_id']}/videos?api_key={TMDB_API_KEY}"
+            video_res = requests.get(video_url, timeout=5).json()
+            for v in video_res.get("results", []):
+                if v['type'] == 'Trailer' and v['site'] == 'YouTube':
+                    trailer_key = v['key']; break
 
-# --- Admin Routes (অপরিবর্তিত) ---
-@app.route('/admin', methods=['GET', 'POST'])
-def admin_login():
-    if session.get('logged_in'): return redirect(url_for('admin_dashboard'))
+        return render_template_string(detail_html, movie=movie, trailer_key=trailer_key, related_movies=process_movie_list(related_movies), bot_username=BOT_USERNAME)
+    except Exception as e:
+        print(f"Error in movie_detail: {e}")
+        return "An error occurred.", 500
+
+@app.route('/watch/<movie_id>')
+def watch_movie(movie_id):
+    try:
+        movie = movies.find_one({"_id": ObjectId(movie_id)})
+        if not movie: return "Content not found.", 404
+        
+        watch_link, title = movie.get("watch_link"), movie.get("title")
+        episode_num = request.args.get('ep')
+        if episode_num and movie.get('type') == 'series' and movie.get('episodes'):
+            for ep in movie['episodes']:
+                if str(ep.get('episode_number')) == episode_num:
+                    watch_link = ep.get('watch_link')
+                    title = f"{title} - E{episode_num}: {ep.get('title')}"
+                    break
+        
+        if watch_link: return render_template_string(watch_html, watch_link=watch_link, title=title)
+        return "Watch link not found for this content.", 404
+    except Exception as e:
+        print(f"Watch page error: {e}")
+        return "An error occurred.", 500
+
+# --- Additional Page Routes ---
+def render_full_list(content_list, title):
+    return render_template_string(index_html, movies=process_movie_list(content_list), query=title, is_full_page_list=True)
+
+@app.route('/badge/<badge_name>')
+def movies_by_badge(badge_name):
+    return render_full_list(list(movies.find({"poster_badge": badge_name}).sort('_id', -1)), f'Tag: {badge_name}')
+
+@app.route('/genres')
+def genres_page():
+    return render_template_string(genres_html, genres=sorted([g for g in movies.distinct("genres") if g]), title="Browse by Genre")
+
+@app.route('/genre/<genre_name>')
+def movies_by_genre(genre_name):
+    return render_full_list(list(movies.find({"genres": genre_name}).sort('_id', -1)), f'Genre: {genre_name}')
+
+@app.route('/trending_movies')
+def trending_movies():
+    return render_full_list(list(movies.find({"is_trending": True, "is_coming_soon": {"$ne": True}}).sort('_id', -1)), "Trending Now")
+
+@app.route('/movies_only')
+def movies_only():
+    return render_full_list(list(movies.find({"type": "movie", "is_coming_soon": {"$ne": True}}).sort('_id', -1)), "All Movies")
+
+@app.route('/webseries')
+def webseries():
+    return render_full_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1)), "All Web Series")
+
+@app.route('/coming_soon')
+def coming_soon():
+    return render_full_list(list(movies.find({"is_coming_soon": True}).sort('_id', -1)), "Coming Soon")
+
+@app.route('/recently_added')
+def recently_added_all():
+    return render_full_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1)), "Recently Added")
+
+# ======================================================================
+# --- Admin and Webhook Routes ---
+# ======================================================================
+
+@app.route('/admin', methods=["GET", "POST"])
+@requires_auth
+def admin():
+    if request.method == "POST":
+        content_type = request.form.get("content_type", "movie")
+        tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
+        
+        movie_data = {
+            "title": request.form.get("title"), "type": content_type,
+            "is_trending": False, "is_coming_soon": False,
+            "poster": tmdb_data.get("poster"), "overview": tmdb_data.get("overview"),
+            "release_date": tmdb_data.get("release_date"), "genres": tmdb_data.get("genres"),
+            "vote_average": tmdb_data.get("vote_average"), "tmdb_id": tmdb_data.get("tmdb_id")
+        }
+
+        if content_type == "movie":
+            movie_data["watch_link"] = request.form.get("watch_link", "")
+            links = []
+            if request.form.get("link_480p"): links.append({"quality": "480p", "url": request.form.get("link_480p")})
+            if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
+            if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
+            movie_data["links"] = links
+        else: # series
+            episodes = []
+            for i in range(len(request.form.getlist('episode_number[]'))):
+                ep_links = []
+                if request.form.getlist('episode_link_480p[]')[i]: ep_links.append({"quality": "480p", "url": request.form.getlist('episode_link_480p[]')[i]})
+                if request.form.getlist('episode_link_720p[]')[i]: ep_links.append({"quality": "720p", "url": request.form.getlist('episode_link_720p[]')[i]})
+                episodes.append({
+                    "episode_number": int(request.form.getlist('episode_number[]')[i]), "title": request.form.getlist('episode_title[]')[i],
+                    "watch_link": request.form.getlist('episode_watch_link[]')[i], "links": ep_links
+                })
+            movie_data["episodes"] = episodes
+        
+        movies.insert_one(movie_data)
+        return redirect(url_for('admin'))
+    
+    all_content = process_movie_list(list(movies.find().sort('_id', -1)))
+    feedback_list = process_movie_list(list(feedback.find().sort('timestamp', -1)))
+    return render_template_string(admin_html, all_content=all_content, feedback_list=feedback_list)
+
+@app.route('/admin/save_ads', methods=['POST'])
+@requires_auth
+def save_ads():
+    ad_codes = { "popunder_code": request.form.get("popunder_code", ""), "social_bar_code": request.form.get("social_bar_code", ""), "banner_ad_code": request.form.get("banner_ad_code", ""), "native_banner_code": request.form.get("native_banner_code", "") }
+    settings.update_one({}, {"$set": ad_codes}, upsert=True)
+    return redirect(url_for('admin'))
+
+@app.route('/edit_movie/<movie_id>', methods=["GET", "POST"])
+@requires_auth
+def edit_movie(movie_id):
+    movie_obj = movies.find_one({"_id": ObjectId(movie_id)})
+    if not movie_obj: return "Movie not found", 404
+    if request.method == "POST":
+        content_type = request.form.get("content_type", "movie")
+        update_data = {
+            "title": request.form.get("title"), "type": content_type,
+            "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true",
+            "poster": request.form.get("poster_url", "").strip(), "overview": request.form.get("overview", "").strip(),
+            "release_date": request.form.get("release_date", "").strip(), "poster_badge": request.form.get("poster_badge", "").strip(),
+            "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()]
+        }
+        if content_type == "movie":
+            update_data["watch_link"] = request.form.get("watch_link", "")
+            links = []
+            if request.form.get("link_480p"): links.append({"quality": "480p", "url": request.form.get("link_480p")})
+            if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
+            if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
+            update_data["links"] = links
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"episodes": ""}})
+        else: # series
+            episodes = []
+            for i in range(len(request.form.getlist('episode_number[]'))):
+                ep_links = []
+                if request.form.getlist('episode_link_480p[]')[i]: ep_links.append({"quality": "480p", "url": request.form.getlist('episode_link_480p[]')[i]})
+                if request.form.getlist('episode_link_720p[]')[i]: ep_links.append({"quality": "720p", "url": request.form.getlist('episode_link_720p[]')[i]})
+                episodes.append({
+                    "episode_number": int(request.form.getlist('episode_number[]')[i]), "title": request.form.getlist('episode_title[]')[i],
+                    "watch_link": request.form.getlist('episode_watch_link[]')[i], "links": ep_links
+                })
+            update_data["episodes"] = episodes
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"links": "", "watch_link": ""}})
+        movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data})
+        return redirect(url_for('admin'))
+    
+    return render_template_string(edit_html, movie=movie_obj)
+
+@app.route('/delete_movie/<movie_id>')
+@requires_auth
+def delete_movie(movie_id):
+    movies.delete_one({"_id": ObjectId(movie_id)})
+    return redirect(url_for('admin'))
+
+@app.route('/contact', methods=['GET', 'POST'])
+def contact():
     if request.method == 'POST':
-        if request.form['username'] == ADMIN_USER and request.form['password'] == ADMIN_PASS:
-            session['logged_in'] = True; flash('Login successful!', 'success'); return redirect(url_for('admin_dashboard'))
-        else: flash('Invalid credentials.', 'error')
-    return render_template_string(ADMIN_TEMPLATE, page_type='login', css_code=CSS_CODE)
+        feedback_data = {"type": request.form.get("type"), "content_title": request.form.get("content_title"), "message": request.form.get("message"), "email": request.form.get("email", "").strip(), "reported_content_id": request.form.get("reported_content_id"), "timestamp": datetime.utcnow()}
+        feedback.insert_one(feedback_data)
+        return render_template_string(contact_html, message_sent=True)
+    prefill_title, prefill_id = request.args.get('title', ''), request.args.get('report_id', '')
+    prefill_type = 'Problem Report' if prefill_id else 'Movie Request'
+    return render_template_string(contact_html, message_sent=False, prefill_title=prefill_title, prefill_id=prefill_id, prefill_type=prefill_type)
+    
+@app.route('/feedback/delete/<feedback_id>')
+@requires_auth
+def delete_feedback(feedback_id):
+    feedback.delete_one({"_id": ObjectId(feedback_id)})
+    return redirect(url_for('admin'))
 
-@app.route('/admin/dashboard')
-@login_required
-def admin_dashboard():
-    all_content = list(content_collection.find().sort('_id', -1))
-    return render_template_string(ADMIN_TEMPLATE, page_type='dashboard', contents=all_content, css_code=CSS_CODE)
-
-@app.route('/admin/edit/<content_id>', methods=['GET', 'POST'])
-@login_required
-def admin_edit(content_id):
-    content = content_collection.find_one({'_id': ObjectId(content_id)})
-    if request.method == 'POST':
-        updated_data = {'title': request.form['title'], 'description': request.form['description'], 'poster_url': request.form['poster_url']}
-        content_collection.update_one({'_id': ObjectId(content_id)}, {'$set': updated_data})
-        flash('Content updated successfully!', 'success'); return redirect(url_for('admin_dashboard'))
-    return render_template_string(ADMIN_TEMPLATE, page_type='edit', content=content, css_code=CSS_CODE)
-
-@app.route('/admin/delete/<content_id>')
-@login_required
-def admin_delete(content_id):
-    content_collection.delete_one({'_id': ObjectId(content_id)})
-    flash('Content deleted successfully!', 'success'); return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('logged_in', None); flash('You have been logged out.', 'success'); return redirect(url_for('admin_login'))
-
-# --- Webhook Route (প্রধান পরিবর্তন) ---
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
-    if content_collection is None: return jsonify(status='error', message='Database not connected'), 500
     data = request.get_json()
-
     if 'channel_post' in data:
         post = data['channel_post']
-        if str(post['chat']['id']) == ADMIN_CHANNEL_ID:
+        if str(post.get('chat', {}).get('id')) == ADMIN_CHANNEL_ID:
             file = post.get('video') or post.get('document')
             if not (file and file.get('file_name')): return jsonify(status='ok')
             
             parsed_info = parse_filename(file['file_name'])
-            if not parsed_info.get('title'): return jsonify(status='ok')
+            tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
             
-            tmdb_data = get_tmdb_info(parsed_info)
-            if not tmdb_data: return jsonify(status='ok')
+            if not tmdb_data:
+                print(f"Webhook: Could not find TMDb data for '{parsed_info['title']}'. Skipping.")
+                return jsonify(status='ok')
 
-            # প্রতিটি ফাইলের জন্য নতুন ডেটা তৈরি করা হচ্ছে
-            final_data = tmdb_data.copy()
-            final_data['message_id'] = post['message_id']
-            
-            content_collection.insert_one(final_data)
-            print(f"[DB-SUCCESS] Saved new post: '{final_data['title']}'")
+            final_title = tmdb_data.get('title', parsed_info['title'])
+            if parsed_info['type'] == 'series':
+                final_title = f"{final_title} - S{parsed_info['season']:02d}E{parsed_info['episode']:02d}"
+
+            new_content = {
+                "title": final_title,
+                "type": parsed_info['type'],
+                "message_id": post['message_id'],
+                "poster": tmdb_data.get("poster"),
+                "overview": tmdb_data.get("overview"),
+                "release_date": tmdb_data.get("release_date"),
+                "genres": tmdb_data.get("genres"),
+                "vote_average": tmdb_data.get("vote_average"),
+                "tmdb_id": tmdb_data.get("tmdb_id"),
+                "is_trending": False, "is_coming_soon": False
+            }
+            movies.insert_one(new_content)
+            print(f"Webhook: Successfully added '{final_title}' from Telegram.")
 
     elif 'message' in data:
         message = data['message']
-        chat_id, text = message['chat']['id'], message.get('text', '')
-        if text.startswith('/start get_'):
-            try:
-                content_id_str = text.split('_')[1]
-                content = content_collection.find_one({'_id': ObjectId(content_id_str)})
-                if content and content.get('message_id'):
-                    payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': content['message_id']}
-                    res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
-                    if not res.json().get('ok'):
-                         requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, could not send the file.")
-                else: requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, the requested file could not be found.")
-            except Exception as e:
-                print(f"CRITICAL ERROR on file request: {e}")
-                requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=An unexpected error occurred.")
-        elif text == '/start':
-            requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Welcome! Browse our website to get your file.")
-            
+        chat_id = message['chat']['id']
+        text = message.get('text', '')
+        if text.startswith('/start'):
+            parts = text.split()
+            if len(parts) > 1:
+                try:
+                    movie_id = parts[1]
+                    content = movies.find_one({"_id": ObjectId(movie_id)})
+                    if content and content.get('message_id'):
+                        payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': content['message_id']}
+                        requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
+                    else:
+                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Sorry, file not found."})
+                except Exception as e:
+                    print(f"Error processing start command: {e}")
+            else:
+                requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome! Browse our site to find content."})
     return jsonify(status='ok')
 
-# ======================================================================
-# --- Run Application ---
-# ======================================================================
-
-if __name__ == '__main__':
-    load_tmdb_genres()
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
