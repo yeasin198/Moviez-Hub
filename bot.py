@@ -15,14 +15,12 @@ BOT_TOKEN = "7931162174:AAGK8aSdqoYpZ4bsSXp36dp6zbVnYeenowA"
 TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
 ADMIN_CHANNEL_ID = "-1002853936940"
 BOT_USERNAME = "CTGVideoPlayerBot"
-# --- অ্যাডমিন প্যানেলের তথ্য ---
 ADMIN_USER = "Nahid270"
 ADMIN_PASS = "Nahid270"
 # ======================================================================
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# --- অ্যাপ এবং ডাটাবেস সংযোগ ---
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
@@ -36,7 +34,7 @@ except Exception as e:
     print(f"FATAL: Could not connect to MongoDB. Error: {e}")
     content_collection = None
 
-# --- HTML এবং CSS টেমপ্লেট (সম্পূর্ণ কোড এখানে) ---
+# --- HTML এবং CSS টেমপ্লেট ---
 TEMPLATES = {
     "base": """
 <!doctype html>
@@ -56,7 +54,7 @@ TEMPLATES = {
         <nav class="navbar navbar-expand-lg main-nav">
             <div class="container">
                 <a class="navbar-brand" href="/"><i class="fa-solid fa-film"></i> অটো মুভি ও সিরিজ</a>
-                {% if session.logged_in %}
+                {% if session.get('logged_in') %}
                 <a href="{{ url_for('admin_logout') }}" class="btn btn-sm btn-outline-light">Logout</a>
                 {% endif %}
             </div>
@@ -143,7 +141,7 @@ TEMPLATES = {
                     {% endfor %}
                   {% endif %}
                 {% endwith %}
-                <form method="post">
+                <form method="post" action="{{ url_for('admin_login') }}">
                     <div class="mb-3">
                         <label for="username" class="form-label">Username</label>
                         <input type="text" class="form-control" id="username" name="username" required>
@@ -166,7 +164,7 @@ TEMPLATES = {
 {% block content %}
 <h2 class="section-title mb-4">Admin Dashboard - All Content</h2>
 <div class="table-responsive">
-    <table class="table table-dark table-striped table-hover">
+    <table class="table table-dark table-striped table-hover align-middle">
         <thead>
             <tr>
                 <th>Poster</th>
@@ -181,7 +179,7 @@ TEMPLATES = {
             <tr>
                 <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
                 <td>{{ content.title }}</td>
-                <td><span class="badge text-bg-info">{{ content.type }}</span></td>
+                <td><span class="badge text-bg-info text-uppercase">{{ content.type }}</span></td>
                 <td>{{ content.release_year }}</td>
                 <td>
                     <a href="{{ url_for('admin_edit', content_id=content._id) }}" class="btn btn-sm btn-warning">Edit</a>
@@ -239,17 +237,20 @@ body { background-color: var(--background-color) !important; color: var(--text-c
 .table-dark { --bs-table-bg: #212529; --bs-table-striped-bg: #2c3034; --bs-table-hover-bg: #323539; }
 """
 
+# === Jinja2 এর জন্য সঠিক লোডার এবং রেন্ডারার (ফিক্সড) ===
 class DictLoader(BaseLoader):
     def __init__(self, templates): self.templates = templates
     def get_source(self, environment, template):
-        if template in self.templates: return self.templates[template], None, lambda: True
+        if template in self.templates:
+            return self.templates[template], None, lambda: True
         raise TemplateNotFound(template)
 
 jinja_env = Environment(loader=DictLoader(TEMPLATES))
 def render_template(template_name, **context):
     template = jinja_env.get_template(template_name)
-    return render_template_string(template, css_code=CSS_CODE, bot_username=BOT_USERNAME, **context)
+    return template.render(css_code=CSS_CODE, bot_username=BOT_USERNAME, **context)
 
+# --- অ্যাডমিন লগইন ডেকোরেটর ---
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -276,10 +277,8 @@ def get_tmdb_info(parsed_info):
         res = r.json()
         if res.get('results'):
             data = res['results'][0]
-            if parsed_info['type'] == 'movie':
-                title, year = data.get('title'), data.get('release_date', '')[:4]
-            else:
-                title, year = f"{data.get('name')} S{parsed_info['season']:02d}E{parsed_info['episode']:02d}", data.get('first_air_date', '')[:4]
+            if parsed_info['type'] == 'movie': title, year = data.get('title'), data.get('release_date', '')[:4]
+            else: title, year = f"{data.get('name')} S{parsed_info['season']:02d}E{parsed_info['episode']:02d}", data.get('first_air_date', '')[:4]
             poster = data.get('poster_path')
             return {'type': parsed_info['type'],'title': title,'description': data.get('overview'),'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None,'release_year': year,'rating': round(data.get('vote_average', 0), 1)}
     except requests.exceptions.RequestException as e: print(f"Error fetching TMDb info: {e}")
@@ -304,13 +303,12 @@ def content_detail(content_id):
 # --- অ্যাডমিন প্যানেলের রাউট ---
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_login():
+    if session.get('logged_in'): return redirect(url_for('admin_dashboard'))
     if request.method == 'POST':
         if request.form['username'] == ADMIN_USER and request.form['password'] == ADMIN_PASS:
             session['logged_in'] = True
-            flash('Login successful!', 'success')
             return redirect(url_for('admin_dashboard'))
-        else:
-            flash('Invalid credentials. Please try again.', 'error')
+        else: flash('Invalid credentials. Please try again.', 'error')
     return render_template('admin_login')
 
 @app.route('/admin/dashboard')
@@ -322,16 +320,12 @@ def admin_dashboard():
 @app.route('/admin/edit/<content_id>', methods=['GET', 'POST'])
 @login_required
 def admin_edit(content_id):
+    content = content_collection.find_one({'_id': ObjectId(content_id)})
     if request.method == 'POST':
-        updated_data = {
-            'title': request.form['title'],
-            'description': request.form['description'],
-            'poster_url': request.form['poster_url']
-        }
+        updated_data = {'title': request.form['title'],'description': request.form['description'],'poster_url': request.form['poster_url']}
         content_collection.update_one({'_id': ObjectId(content_id)}, {'$set': updated_data})
         flash('Content updated successfully!', 'success')
         return redirect(url_for('admin_dashboard'))
-    content = content_collection.find_one({'_id': ObjectId(content_id)})
     return render_template('admin_edit', content=content)
 
 @app.route('/admin/delete/<content_id>')
@@ -344,7 +338,6 @@ def admin_delete(content_id):
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('logged_in', None)
-    flash('You have been logged out.', 'success')
     return redirect(url_for('admin_login'))
 
 # --- টেলিগ্রাম ওয়েবহুক ---
@@ -381,10 +374,8 @@ def telegram_webhook():
                     res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
                     
                     if wait_msg_id: requests.get(f"{TELEGRAM_API_URL}/deleteMessage?chat_id={chat_id}&message_id={wait_msg_id}")
-                    if not res.json().get('ok'):
-                        requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, send failed.")
-                else:
-                    requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, content not found.")
+                    if not res.json().get('ok'): requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, send failed.")
+                else: requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, content not found.")
             except Exception as e:
                 print(f"CRITICAL ERROR: {e}")
                 requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=An unexpected error occurred.")
