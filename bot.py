@@ -32,7 +32,9 @@ except Exception as e:
     print(f"FATAL: Could not connect to MongoDB. Error: {e}")
     content_collection = None
 
-# --- HTML এবং CSS টেমপ্লেট ---
+# --- HTML এবং CSS টেমপ্লেট (সার্চ বার সহ) ---
+
+# === পরিবর্তন এখানে: INDEX_TEMPLATE এ সার্চ বার যোগ করা হয়েছে ===
 INDEX_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -45,8 +47,23 @@ INDEX_TEMPLATE = """
 <body>
     <header class="main-nav"><a href="{{ url_for('index') }}" class="logo">MovieZone</a></header>
     <main>
+        <!-- Search Bar -->
+        <div class="search-container">
+            <form method="GET" action="{{ url_for('index') }}" class="search-form">
+                <input type="search" name="q" class="search-input" placeholder="Search for a movie or series..." value="{{ search_query or '' }}">
+                <button type="submit" class="search-button"><i class="fas fa-search"></i></button>
+            </form>
+        </div>
+
         <div class="full-page-grid-container">
-          <h2 class="full-page-grid-title">All Movies & Series</h2>
+          <!-- Dynamic Title -->
+          <h2 class="full-page-grid-title">
+            {% if search_query %}
+              Search Results for '{{ search_query }}'
+            {% else %}
+              All Movies & Series
+            {% endif %}
+          </h2>
           {% if contents|length == 0 %}
             <p style="text-align:center; color: #a0a0a0; margin-top: 40px;">No content found.</p>
           {% else %}
@@ -96,7 +113,7 @@ DETAIL_TEMPLATE = """
           <h5 class="mb-3">Get from Bot</h5>
           <div class="quality-buttons">
             {% if content.qualities %}
-                {% for quality, msg_id in content.qualities.items() %}
+                {% for quality, msg_id in content.qualities.items()|sort %}
                     <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}_{{ quality }}" class="watch-now-btn" target="_blank">
                         <i class="fas fa-robot"></i> Get {{ quality }}
                     </a>
@@ -116,7 +133,6 @@ DETAIL_TEMPLATE = """
 </html>
 """
 
-# === পরিবর্তন এখানে: ADMIN_TEMPLATE আপডেট করা হয়েছে ===
 ADMIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -159,9 +175,8 @@ ADMIN_TEMPLATE = """
                                 <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
                                 <td>{{ content.title }}</td>
                                 <td>
-                                    <!-- === ফিক্স এখানে: 'qualities' আছে কিনা চেক করা হচ্ছে === -->
                                     {% if content.qualities %}
-                                        {% for quality in content.qualities.keys() %}
+                                        {% for quality in content.qualities.keys()|sort %}
                                             <span class="type-badge">{{ quality }}</span>
                                         {% endfor %}
                                     {% else %}
@@ -193,6 +208,7 @@ ADMIN_TEMPLATE = """
 </html>
 """
 
+# === পরিবর্তন এখানে: CSS_CODE এ সার্চ বারের জন্য স্টাইল যোগ করা হয়েছে ===
 CSS_CODE = """
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
 :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; --nav-height: 60px; }
@@ -202,7 +218,17 @@ a { text-decoration: none; color: inherit; }
 .main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; z-index: 100; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
 .main-nav.scrolled { background-color: var(--netflix-black); }
 .logo { font-family: 'Bebas Neue', sans-serif; font-size: 32px; color: var(--netflix-red); font-weight: 700; letter-spacing: 1px; }
-.full-page-grid-container { padding: 100px 50px 50px 50px; }
+
+/* --- Search Bar Styles --- */
+.search-container { padding: 90px 50px 0px 50px; display: flex; justify-content: center; }
+.search-form { position: relative; width: 100%; max-width: 600px; }
+.search-input { width: 100%; padding: 15px 50px 15px 20px; font-size: 1rem; color: var(--text-light); background-color: #333; border: 1px solid #444; border-radius: 4px; transition: border-color 0.3s ease, box-shadow 0.3s ease; }
+.search-input:focus { outline: none; border-color: var(--netflix-red); box-shadow: 0 0 0 3px rgba(229, 9, 20, 0.25); }
+.search-input::placeholder { color: var(--text-dark); }
+.search-button { position: absolute; top: 0; right: 0; bottom: 0; background: transparent; border: none; color: var(--text-dark); padding: 0 15px; cursor: pointer; font-size: 1.2rem; }
+.search-input:focus + .search-button { color: var(--text-light); }
+
+.full-page-grid-container { padding: 30px 50px 50px 50px; }
 .full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; }
 .full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
 .movie-card { min-width: 0; border-radius: 4px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; position: relative; background-color: #222; display: block; }
@@ -245,10 +271,10 @@ input[type="text"], input[type="url"], input[type="password"], textarea { width:
 .edit-btn { background: #0d6efd; } .delete-btn { background: #dc3545; }
 .type-badge { background-color: #0dcaf0; color: #000; padding: 0.25em 0.5em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; text-transform: uppercase; }
 .cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
-@media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
+@media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .search-container { padding: 80px 15px 0px 15px; } .full-page-grid-container { padding: 20px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
 """
 
-# === Flask অ্যাপ্লিকেশনের ফাংশন এবং রাউট (মাল্টি-কোয়ালিটি সহ) ===
+# === Flask অ্যাপ্লিকেশনের ফাংশন এবং রাউট (সার্চ এবং মাল্টি-কোয়ালিটি ফিক্স সহ) ===
 
 @app.context_processor
 def inject_global_vars():
@@ -266,37 +292,73 @@ def parse_filename(filename):
     quality_match = re.search(r'(\d{3,4}p)', cleaned_name, re.IGNORECASE)
     quality = quality_match.group(1).lower() if quality_match else 'HD'
     
-    series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', cleaned_name, re.IGNORECASE)
+    # টাইটেল থেকে কোয়ালিটি এবং অন্যান্য অতিরিক্ত তথ্য বাদ দেওয়া হয়
+    base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
+
+    series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', base_name, re.IGNORECASE)
     if series_match:
         return {'type': 'tv', 'title': series_match.group(1).strip(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3)), 'quality': quality}
     
-    movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', cleaned_name, re.IGNORECASE)
+    movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', base_name, re.IGNORECASE)
     if movie_match:
         return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip(), 'quality': quality}
         
-    return None
+    return {'type': 'movie', 'title': base_name, 'year': None, 'quality': quality}
+
 
 def get_tmdb_info(parsed_info):
-    api_url = f"https://api.themoviedb.org/3/search/{parsed_info['type']}"
+    search_type = parsed_info['type']
+    api_url = f"https://api.themoviedb.org/3/search/{search_type}"
     params = {'api_key': TMDB_API_KEY, 'query': parsed_info['title']}
-    if parsed_info['type'] == 'movie': params['primary_release_year'] = parsed_info.get('year')
+    if search_type == 'movie' and parsed_info.get('year'):
+        params['primary_release_year'] = parsed_info.get('year')
+
     try:
         r = requests.get(api_url, params=params)
-        r.raise_for_status(); res = r.json()
+        r.raise_for_status()
+        res = r.json()
         if res.get('results'):
             data = res['results'][0]
-            if parsed_info['type'] == 'movie': title, year = data.get('title'), data.get('release_date', '')[:4]
-            else: title, year = f"{data.get('name')} S{parsed_info['season']:02d}E{parsed_info['episode']:02d}", data.get('first_air_date', '')[:4]
             poster = data.get('poster_path')
-            return {'type': parsed_info['type'], 'title': title, 'original_title': data.get('original_title') or data.get('original_name'), 'description': data.get('overview'), 'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None, 'release_year': year, 'rating': round(data.get('vote_average', 0), 1)}
-    except requests.exceptions.RequestException as e: print(f"Error fetching TMDb info: {e}")
+            
+            if search_type == 'movie':
+                title = data.get('title')
+                year = data.get('release_date', '')[:4]
+                original_title = data.get('original_title')
+            else: # tv
+                title = f"{data.get('name')} S{parsed_info['season']:02d}E{parsed_info['episode']:02d}"
+                year = data.get('first_air_date', '')[:4]
+                original_title = data.get('original_name') # সিরিজের জন্য আসল টাইটেল
+
+            return {
+                'type': search_type,
+                'title': title,
+                'original_title': original_title,
+                'description': data.get('overview'),
+                'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None,
+                'release_year': year,
+                'rating': round(data.get('vote_average', 0), 1)
+            }
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching TMDb info: {e}")
     return None
 
+# === পরিবর্তন এখানে: index() ফাংশন এখন সার্চ পরিচালনা করে ===
 @app.route('/')
 def index():
-    if content_collection is None: return "Database connection failed.", 500
-    all_content = list(content_collection.find().sort('_id', -1))
-    return render_template_string(INDEX_TEMPLATE, contents=all_content, css_code=CSS_CODE)
+    if content_collection is None:
+        return "Database connection failed.", 500
+    
+    search_query = request.args.get('q', '').strip()
+    
+    query = {}
+    if search_query:
+        # কেস-ইনসেনসিটিভ সার্চের জন্য Regex ব্যবহার করা হচ্ছে
+        query['title'] = {'$regex': search_query, '$options': 'i'}
+    
+    all_content = list(content_collection.find(query).sort('_id', -1))
+    
+    return render_template_string(INDEX_TEMPLATE, contents=all_content, css_code=CSS_CODE, search_query=search_query)
 
 @app.route('/content/<content_id>')
 def content_detail(content_id):
@@ -342,6 +404,7 @@ def admin_delete(content_id):
 def admin_logout():
     session.pop('logged_in', None); return redirect(url_for('admin_login'))
 
+# === পরিবর্তন এখানে: ডুপ্লিকেট কন্টেন্ট ফিক্স করার জন্য webhook লজিক আপডেট করা হয়েছে ===
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
@@ -352,23 +415,31 @@ def telegram_webhook():
             if file and content_collection is not None:
                 parsed_info = parse_filename(file.get('file_name', ''))
                 if parsed_info:
-                    existing_content = content_collection.find_one({'original_title': parsed_info['title']})
-                    if existing_content:
-                        quality_key = f"qualities.{parsed_info['quality']}"
-                        content_collection.update_one({'_id': existing_content['_id']}, {'$set': {quality_key: post['message_id']}})
-                        print(f"SUCCESS: Updated quality '{parsed_info['quality']}' for '{existing_content['title']}'")
-                    else:
-                        tmdb_data = get_tmdb_info(parsed_info)
-                        if tmdb_data:
+                    tmdb_data = get_tmdb_info(parsed_info)
+                    if tmdb_data:
+                        # TMDb থেকে পাওয়া original_title দিয়ে খোঁজা হয়, এটি সবচেয়ে নির্ভরযোগ্য
+                        search_key = {'original_title': tmdb_data['original_title'], 'type': tmdb_data['type']}
+                        existing_content = content_collection.find_one(search_key)
+                        
+                        if existing_content:
+                            # যদি মুভি আগে থেকেই থাকে, তাহলে শুধু নতুন কোয়ালিটি যোগ করা হবে
+                            quality_key = f"qualities.{parsed_info['quality']}"
+                            content_collection.update_one(
+                                {'_id': existing_content['_id']},
+                                {'$set': {quality_key: post['message_id']}}
+                            )
+                            print(f"SUCCESS: Updated quality '{parsed_info['quality']}' for '{existing_content['title']}'")
+                        else:
+                            # যদি মুভি নতুন হয়, তাহলে নতুন ডকুমেন্ট তৈরি করা হবে
                             tmdb_data['qualities'] = {parsed_info['quality']: post['message_id']}
                             content_collection.insert_one(tmdb_data)
-                            print(f"SUCCESS: New content '{tmdb_data['title']}' saved.")
+                            print(f"SUCCESS: New content '{tmdb_data['title']}' saved with quality '{parsed_info['quality']}'.")
     
     elif 'message' in data:
         message = data['message']
         chat_id, text = message['chat']['id'], message.get('text', '')
         if text == '/start':
-            requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Welcome! Browse our website.")
+            requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Welcome! Browse our website to get your file.")
         elif text.startswith('/start get_'):
             try:
                 parts = text.split('_')
@@ -377,13 +448,18 @@ def telegram_webhook():
                 if content and quality in content.get('qualities', {}):
                     message_id = content['qualities'][quality]
                     payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id}
-                    requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
-                else: requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, content or quality not found.")
+                    res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
+                    if not res.json().get('ok'):
+                         print(f"ERROR copying message: {res.text}")
+                         requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, I could not send the file. The bot might not be an admin in the channel or the file is no longer available.")
+                else: 
+                    requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, the requested content or quality could not be found.")
             except Exception as e:
-                print(f"CRITICAL ERROR: {e}")
-                requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=An unexpected error occurred.")
+                print(f"CRITICAL ERROR on file request: {e}")
+                requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=An unexpected error occurred. Please try again later.")
                 
     return jsonify(status='ok')
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
