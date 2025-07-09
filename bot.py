@@ -1,10 +1,10 @@
 import os
 import re
 import requests
-from flask import Flask, request, jsonify, render_template_string, abort
+from flask import Flask, request, jsonify, abort
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, BaseLoader, TemplateNotFound
 
 # ======================================================================
 # --- আপনার ব্যক্তিগত তথ্য সরাসরি এখানে বসানো হয়েছে ---
@@ -31,8 +31,8 @@ except Exception as e:
 
 # --- HTML এবং CSS টেমপ্লেটগুলো সরাসরি পাইথন স্ট্রিং-এ রাখা হলো ---
 
-# মূল লেআউট (base.html)
-BASE_TEMPLATE = """
+TEMPLATES = {
+    "base": """
 <!doctype html>
 <html lang="bn">
 <head>
@@ -64,10 +64,8 @@ BASE_TEMPLATE = """
     </footer>
 </body>
 </html>
-"""
-
-# হোমপেজ (index.html)
-INDEX_TEMPLATE = """
+""",
+    "index": """
 {% extends "base" %}
 {% block title %}সকল মুভি{% endblock %}
 {% block content %}
@@ -100,10 +98,8 @@ INDEX_TEMPLATE = """
     {% endfor %}
 </div>
 {% endblock %}
-"""
-
-# বিস্তারিত পেজ (movie_detail.html)
-DETAIL_TEMPLATE = """
+""",
+    "detail": """
 {% extends "base" %}
 {% block title %}{{ movie.title }}{% endblock %}
 {% block content %}
@@ -137,77 +133,59 @@ DETAIL_TEMPLATE = """
 </div>
 {% endblock %}
 """
+}
 
-# CSS কোড (style.css)
 CSS_CODE = """
 :root {
-    --primary-color: #e50914;
-    --background-color: #141414;
-    --card-background: #1f1f1f;
-    --text-color: #ffffff;
-    --font-family: 'Hind Siliguri', sans-serif;
+    --primary-color: #e50914; --background-color: #141414; --card-background: #1f1f1f;
+    --text-color: #ffffff; --font-family: 'Hind Siliguri', sans-serif;
 }
 body {
-    background-color: var(--background-color) !important;
-    color: var(--text-color) !important;
-    font-family: var(--font-family);
-    display: flex; flex-direction: column; min-height: 100vh;
+    background-color: var(--background-color) !important; color: var(--text-color) !important;
+    font-family: var(--font-family); display: flex; flex-direction: column; min-height: 100vh;
 }
-.main-nav {
-    background-color: rgba(20, 20, 20, 0.85);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid #222;
-}
-.navbar-brand {
-    font-weight: 700;
-    color: var(--primary-color) !important;
-    font-size: 1.5rem;
-}
-.section-title {
-    font-weight: 600;
-    border-left: 4px solid var(--primary-color);
-    padding-left: 15px;
-}
+.main-nav { background-color: rgba(20, 20, 20, 0.85); backdrop-filter: blur(10px); border-bottom: 1px solid #222; }
+.navbar-brand { font-weight: 700; color: var(--primary-color) !important; font-size: 1.5rem; }
+.section-title { font-weight: 600; border-left: 4px solid var(--primary-color); padding-left: 15px; }
 .movie-card {
-    position: relative; overflow: hidden; border-radius: 8px;
-    background-color: var(--card-background);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    cursor: pointer; border: 1px solid #2a2a2a;
+    position: relative; overflow: hidden; border-radius: 8px; background-color: var(--card-background);
+    transition: transform 0.3s ease, box-shadow 0.3s ease; cursor: pointer; border: 1px solid #2a2a2a;
 }
-.movie-card:hover {
-    transform: scale(1.05);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-}
-.movie-poster {
-    width: 100%; height: auto;
-    aspect-ratio: 2/3; object-fit: cover; display: block;
-}
+.movie-card:hover { transform: scale(1.05); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+.movie-poster { width: 100%; height: auto; aspect-ratio: 2/3; object-fit: cover; display: block; }
 .movie-overlay {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 50%);
-    display: flex; align-items: flex-end;
-    opacity: 0; transition: opacity 0.3s ease;
+    display: flex; align-items: flex-end; opacity: 0; transition: opacity 0.3s ease;
 }
 .movie-card:hover .movie-overlay { opacity: 1; }
 .movie-info { padding: 1rem; width: 100%; }
 .movie-title {
-    font-size: 1rem; font-weight: 600; color: var(--text-color);
-    margin-bottom: 0; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
+    font-size: 1rem; font-weight: 600; color: var(--text-color); margin-bottom: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.movie-detail-poster {
-    max-width: 350px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
-}
+.movie-detail-poster { max-width: 350px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7); }
 .movie-detail-card .display-5 { font-weight: 700; }
 .btn-primary { background-color: var(--primary-color); border-color: var(--primary-color); }
 .btn-primary:hover { background-color: #c40812; border-color: #c40812; }
 """
 
-# Jinja2 Environment সেটআপ করা হচ্ছে
-# এটি স্ট্রিং থেকে টেমপ্লেট লোড করতে সাহায্য করবে
-jinja_env = Environment(loader=FileSystemLoader('.')) # একটি ডামি লোডার
-jinja_env.from_string = lambda source: jinja_env.env.from_string(source)
+# === Jinja2 এর জন্য সঠিক লোডার ===
+class DictLoader(BaseLoader):
+    def __init__(self, templates):
+        self.templates = templates
+
+    def get_source(self, environment, template):
+        if template in self.templates:
+            source = self.templates[template]
+            return source, None, lambda: True
+        raise TemplateNotFound(template)
+
+jinja_env = Environment(loader=DictLoader(TEMPLATES))
+
+def render_template(template_name, **context):
+    template = jinja_env.get_template(template_name)
+    return template.render(css_code=CSS_CODE, **context)
 
 # --- হেল্পার ফাংশন ---
 def parse_movie_name(filename):
@@ -248,8 +226,7 @@ def get_telegram_file_link(file_id):
 def index():
     if movies_collection is None: return "Database connection failed.", 500
     all_movies = list(movies_collection.find().sort('_id', -1))
-    template = jinja_env.from_string(BASE_TEMPLATE + INDEX_TEMPLATE)
-    return template.render(movies=all_movies, css_code=CSS_CODE)
+    return render_template('index', movies=all_movies)
 
 @app.route('/movie/<movie_id>')
 def movie_detail(movie_id):
@@ -257,8 +234,7 @@ def movie_detail(movie_id):
     try:
         movie = movies_collection.find_one({'_id': ObjectId(movie_id)})
         if movie:
-            template = jinja_env.from_string(BASE_TEMPLATE + DETAIL_TEMPLATE)
-            return template.render(movie=movie, css_code=CSS_CODE)
+            return render_template('detail', movie=movie)
         else: abort(404)
     except: abort(404)
 
