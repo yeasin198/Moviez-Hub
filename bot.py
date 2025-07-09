@@ -240,14 +240,22 @@ detail_html = """
       
       {% elif movie.type == 'movie' %}
         <div class="download-section">
+          <!-- ম্যানুয়াল লিঙ্কের জন্য (অ্যাডমিন প্যানেল থেকে) -->
           {% if movie.links %}
-            <h3 class="section-title">Download Links</h3>
+            <h3 class="section-title">Download Links (Manual)</h3>
             {% for link_item in movie.links %}
               <div><a class="download-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> {{ link_item.quality }}</a><button class="copy-button" onclick="copyToClipboard('{{ link_item.url }}')"><i class="fas fa-copy"></i></button></div>
             {% endfor %}
           {% endif %}
-          {% if movie.message_id %}
-            <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}" class="action-btn" style="background-color: #2AABEE; display: block; text-align:center; margin-top:20px;"><i class="fa-brands fa-telegram"></i> Get from Telegram</a>
+
+          <!-- টেলিগ্রাম থেকে আসা ফাইলের জন্য -->
+          {% if movie.files %}
+            <h3 class="section-title">Get from Telegram</h3>
+            {% for file in movie.files | sort(attribute='quality') %}
+               <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="action-btn" style="background-color: #2AABEE; display: block; text-align:center; margin-top:10px; margin-bottom: 0;">
+                 <i class="fa-brands fa-telegram"></i> Get {{ file.quality }}
+               </a>
+            {% endfor %}
           {% endif %}
         </div>
       
@@ -429,28 +437,16 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 # ======================================================================
 
 def parse_filename(filename):
-    """
-    ফাইলের নাম পার্স করে মুভি বা সিরিজের তথ্য বের করে।
-    যেমন: "Loki S02E03.mkv" -> {'type': 'series', 'title': 'Loki', 'season': 2, 'episode': 3}
-    "The Dark Knight (2008).mp4" -> {'type': 'movie', 'title': 'The Dark Knight', 'year': '2008'}
-    """
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
     base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|pack|complete|final|dual audio|hindi|season).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
-    
-    # সিরিজের প্যাটার্ন: S01E01, s01e01, S1E1, ইত্যাদি।
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', base_name, re.IGNORECASE)
     if series_match:
         title = series_match.group(1).strip()
-        # যদি টাইটেলের শেষে সিজন নম্বর থাকে (যেমন "Loki Season 2 S02E01"), তা বাদ দিন
         title = re.sub(r'\s*season\s*\d+\s*$', '', title, flags=re.IGNORECASE).strip()
         return {'type': 'series', 'title': title, 'season': int(series_match.group(2)), 'episode': int(series_match.group(3))}
-        
-    # মুভির প্যাটার্ন: (2008)
     movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', base_name, re.IGNORECASE)
     if movie_match:
         return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip()}
-        
-    # কোনো প্যাটার্ন না মিললে, এটিকে মুভি হিসেবে ধরা হবে
     return {'type': 'movie', 'title': base_name, 'year': None}
 
 def get_tmdb_details_from_api(title, content_type, year=None):
@@ -459,28 +455,18 @@ def get_tmdb_details_from_api(title, content_type, year=None):
     try:
         search_url = f"https://api.themoviedb.org/3/search/{search_type}?api_key={TMDB_API_KEY}&query={requests.utils.quote(title)}"
         if year and search_type == "movie": search_url += f"&primary_release_year={year}"
+        search_res = requests.get(search_url, timeout=5).json()
+        if not search_res.get("results"): return None
         
-        search_res = requests.get(search_url, timeout=5)
-        search_res.raise_for_status() # HTTP error হলে exception raise করবে
-        search_data = search_res.json()
-
-        if not search_data.get("results"): return None
-        
-        tmdb_id = search_data["results"][0].get("id")
+        tmdb_id = search_res["results"][0].get("id")
         detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}"
-        
-        detail_res = requests.get(detail_url, timeout=5)
-        detail_res.raise_for_status()
-        res = detail_res.json()
+        res = requests.get(detail_url, timeout=5).json()
         
         return {
-            "tmdb_id": tmdb_id,
-            "title": res.get("title") if search_type == "movie" else res.get("name"),
+            "tmdb_id": tmdb_id, "title": res.get("title") if search_type == "movie" else res.get("name"),
             "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None,
-            "overview": res.get("overview"),
-            "release_date": res.get("release_date") if search_type == "movie" else res.get("first_air_date"),
-            "genres": [g['name'] for g in res.get("genres", [])],
-            "vote_average": res.get("vote_average")
+            "overview": res.get("overview"), "release_date": res.get("release_date") if search_type == "movie" else res.get("first_air_date"),
+            "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average")
         }
     except requests.RequestException as e:
         print(f"TMDb API error for '{title}': {e}")
@@ -533,10 +519,8 @@ def movie_detail(movie_id):
                 video_res = requests.get(video_url, timeout=3).json()
                 for v in video_res.get("results", []):
                     if v.get('type') == 'Trailer' and v.get('site') == 'YouTube': 
-                        trailer_key = v.get('key')
-                        break
-            except requests.RequestException:
-                pass # API request ব্যর্থ হলে ট্রেলার দেখানো হবে না
+                        trailer_key = v.get('key'); break
+            except requests.RequestException: pass
                 
         return render_template_string(detail_html, movie=movie, trailer_key=trailer_key, related_movies=process_movie_list(related_movies))
     except Exception as e: return f"An error occurred: {e}", 500
@@ -579,14 +563,7 @@ def admin():
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
         tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
-        
-        movie_data = {
-            "title": request.form.get("title"), 
-            "type": content_type, 
-            **tmdb_data,
-            "is_trending": False,
-            "is_coming_soon": False
-        }
+        movie_data = {"title": request.form.get("title"), "type": content_type, **tmdb_data, "is_trending": False, "is_coming_soon": False}
         
         if content_type == "movie":
             movie_data["watch_link"] = request.form.get("watch_link", "")
@@ -595,20 +572,14 @@ def admin():
             if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
             if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
             movie_data["links"] = links
-        else: # series
+        else:
             episodes = []
             ep_numbers = request.form.getlist('episode_number[]')
             for i in range(len(ep_numbers)):
                 ep_links = []
                 if request.form.getlist('episode_link_480p[]')[i]: ep_links.append({"quality": "480p", "url": request.form.getlist('episode_link_480p[]')[i]})
                 if request.form.getlist('episode_link_720p[]')[i]: ep_links.append({"quality": "720p", "url": request.form.getlist('episode_link_720p[]')[i]})
-                episodes.append({
-                    "season": int(request.form.getlist('episode_season[]')[i]),
-                    "episode_number": int(ep_numbers[i]), 
-                    "title": request.form.getlist('episode_title[]')[i], 
-                    "watch_link": request.form.getlist('episode_watch_link[]')[i], 
-                    "links": ep_links
-                })
+                episodes.append({"season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(ep_numbers[i]), "title": request.form.getlist('episode_title[]')[i], "watch_link": request.form.getlist('episode_watch_link[]')[i], "links": ep_links})
             movie_data["episodes"] = episodes
         movies.insert_one(movie_data)
         return redirect(url_for('admin'))
@@ -620,12 +591,7 @@ def admin():
 @app.route('/admin/save_ads', methods=['POST'])
 @requires_auth
 def save_ads():
-    ad_codes = { 
-        "popunder_code": request.form.get("popunder_code", ""), 
-        "social_bar_code": request.form.get("social_bar_code", ""), 
-        "banner_ad_code": request.form.get("banner_ad_code", ""), 
-        "native_banner_code": request.form.get("native_banner_code", "") 
-    }
+    ad_codes = {"popunder_code": request.form.get("popunder_code", ""), "social_bar_code": request.form.get("social_bar_code", ""), "banner_ad_code": request.form.get("banner_ad_code", ""), "native_banner_code": request.form.get("native_banner_code", "")}
     settings.update_one({}, {"$set": ad_codes}, upsert=True)
     return redirect(url_for('admin'))
 
@@ -634,16 +600,9 @@ def save_ads():
 def edit_movie(movie_id):
     movie_obj = movies.find_one({"_id": ObjectId(movie_id)})
     if not movie_obj: return "Movie not found", 404
-
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
-        update_data = {
-            "title": request.form.get("title"), "type": content_type,
-            "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true",
-            "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(),
-            "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()],
-            "poster_badge": request.form.get("poster_badge", "").strip() or None
-        }
+        update_data = {"title": request.form.get("title"), "type": content_type, "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true", "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(), "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], "poster_badge": request.form.get("poster_badge", "").strip() or None}
         if content_type == "movie":
             update_data["watch_link"] = request.form.get("watch_link", "")
             links = []
@@ -651,27 +610,20 @@ def edit_movie(movie_id):
             if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
             if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
             update_data["links"] = links
-            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"episodes": ""}})
-        else: # series
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"episodes": "", "files": ""}})
+        else:
             episodes = []
             ep_numbers = request.form.getlist('episode_number[]')
             for i in range(len(ep_numbers)):
                 ep_links = []
                 if request.form.getlist('episode_link_480p[]')[i]: ep_links.append({"quality": "480p", "url": request.form.getlist('episode_link_480p[]')[i]})
                 if request.form.getlist('episode_link_720p[]')[i]: ep_links.append({"quality": "720p", "url": request.form.getlist('episode_link_720p[]')[i]})
-                episodes.append({
-                    "season": int(request.form.getlist('episode_season[]')[i]),
-                    "episode_number": int(ep_numbers[i]), 
-                    "title": request.form.getlist('episode_title[]')[i], 
-                    "watch_link": request.form.getlist('episode_watch_link[]')[i], 
-                    "links": ep_links
-                })
+                episodes.append({"season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(ep_numbers[i]), "title": request.form.getlist('episode_title[]')[i], "watch_link": request.form.getlist('episode_watch_link[]')[i], "links": ep_links})
             update_data["episodes"] = episodes
-            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"links": "", "watch_link": ""}})
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"links": "", "watch_link": "", "files": ""}})
         
         movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data})
         return redirect(url_for('admin'))
-        
     return render_template_string(edit_html, movie=movie_obj)
 
 @app.route('/delete_movie/<movie_id>')
@@ -683,19 +635,10 @@ def delete_movie(movie_id):
 @app.route('/contact', methods=['GET', 'POST'])
 def contact():
     if request.method == 'POST':
-        feedback_data = {
-            "type": request.form.get("type"), 
-            "content_title": request.form.get("content_title"), 
-            "message": request.form.get("message"), 
-            "email": request.form.get("email", "").strip(), 
-            "reported_content_id": request.form.get("reported_content_id"), 
-            "timestamp": datetime.utcnow()
-        }
+        feedback_data = {"type": request.form.get("type"), "content_title": request.form.get("content_title"), "message": request.form.get("message"), "email": request.form.get("email", "").strip(), "reported_content_id": request.form.get("reported_content_id"), "timestamp": datetime.utcnow()}
         feedback.insert_one(feedback_data)
         return render_template_string(contact_html, message_sent=True)
-        
-    prefill_title = request.args.get('title', '')
-    prefill_id = request.args.get('report_id', '')
+    prefill_title, prefill_id = request.args.get('title', ''), request.args.get('report_id', '')
     prefill_type = 'Problem Report' if prefill_id else 'Movie Request'
     return render_template_string(contact_html, message_sent=False, prefill_title=prefill_title, prefill_id=prefill_id, prefill_type=prefill_type)
     
@@ -723,95 +666,78 @@ def telegram_webhook():
         parsed_info = parse_filename(filename)
         print(f"Webhook: Parsed Info: {parsed_info}")
 
+        quality_match = re.search(r'(\d{3,4})p', filename, re.IGNORECASE)
+        quality = quality_match.group(1) + "p" if quality_match else "HD"
+        print(f"Webhook: Detected Quality: {quality}")
+
         tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
 
-        if not tmdb_data:
-            print(f"Webhook FATAL: Could not find TMDb data for '{parsed_info['title']}'. Skipping.")
-            return jsonify(status='ok', reason='no_tmdb_data')
+        if not tmdb_data or not tmdb_data.get("tmdb_id"):
+            print(f"Webhook FATAL: Could not find TMDb data or tmdb_id for '{parsed_info['title']}'. Skipping.")
+            return jsonify(status='ok', reason='no_tmdb_data_or_id')
         
-        print(f"Webhook: Found TMDb Data: {tmdb_data.get('title')} (ID: {tmdb_data.get('tmdb_id')})")
+        tmdb_id = tmdb_data.get("tmdb_id")
+        print(f"Webhook: Found TMDb Data: {tmdb_data.get('title')} (ID: {tmdb_id})")
 
-        # --- সিরিজের জন্য বিশেষ লজিক ---
         if parsed_info['type'] == 'series':
-            tmdb_id = tmdb_data.get("tmdb_id")
-            if not tmdb_id:
-                print(f"Webhook FATAL: TMDb data for '{parsed_info['title']}' is missing tmdb_id. Skipping.")
-                return jsonify(status='ok', reason='tmdb_data_missing_id')
-
             existing_series = movies.find_one({"tmdb_id": tmdb_id})
-            
-            new_episode = {
-                "season": parsed_info['season'],
-                "episode_number": parsed_info['episode'],
-                "message_id": post['message_id']
-            }
-
+            new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id'], "quality": quality}
             if existing_series:
-                print(f"Webhook: Found existing series '{existing_series['title']}'. Updating with new episode.")
-                movies.update_one(
-                    {"_id": existing_series['_id']},
-                    {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}}
-                )
-                result = movies.update_one(
-                    {"_id": existing_series['_id']},
-                    {"$push": {"episodes": new_episode}}
-                )
-                print(f"Webhook: Update result: Matched {result.matched_count}, Modified {result.modified_count}.")
+                movies.update_one({"_id": existing_series['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
+                movies.update_one({"_id": existing_series['_id']}, {"$push": {"episodes": new_episode}})
+                print(f"Webhook: Updated series '{existing_series['title']}'.")
             else:
-                print(f"Webhook: Creating new series entry for '{tmdb_data.get('title')}'.")
-                series_doc = {
-                    "title": tmdb_data.get('title'), "type": "series", "tmdb_id": tmdb_id,
-                    "poster": tmdb_data.get("poster"), "overview": tmdb_data.get("overview"),
-                    "release_date": tmdb_data.get("release_date"), "genres": tmdb_data.get("genres"),
-                    "vote_average": tmdb_data.get("vote_average"), "is_trending": False,
-                    "is_coming_soon": False, "episodes": [new_episode]
-                }
-                result = movies.insert_one(series_doc)
-                print(f"Webhook: New series inserted with ID: {result.inserted_id}.")
+                series_doc = {**tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False, "episodes": [new_episode]}
+                movies.insert_one(series_doc)
+                print(f"Webhook: Created new series '{tmdb_data.get('title')}'.")
         
-        # --- মুভির জন্য লজিক ---
         else: # type == 'movie'
-            print(f"Webhook: Processing movie '{tmdb_data.get('title')}'.")
-            movie_doc = {**tmdb_data, "type": 'movie', "message_id": post['message_id'], "is_trending": False, "is_coming_soon": False}
-            result = movies.update_one({"tmdb_id": movie_doc.get('tmdb_id')}, {"$set": movie_doc}, upsert=True)
-            print(f"Webhook: Movie upsert result: Matched {result.matched_count}, Modified {result.modified_count}, Upserted ID: {result.upserted_id}.")
+            existing_movie = movies.find_one({"tmdb_id": tmdb_id})
+            new_file = {"quality": quality, "message_id": post['message_id']}
+            if existing_movie:
+                movies.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
+                movies.update_one({"_id": existing_movie['_id']}, {"$push": {"files": new_file}})
+                print(f"Webhook: Updated movie '{existing_movie['title']}' with new quality.")
+            else:
+                movie_doc = {**tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False, "files": [new_file]}
+                movies.insert_one(movie_doc)
+                print(f"Webhook: Created new movie '{tmdb_data.get('title')}'.")
 
     elif 'message' in data:
         message = data['message']
         chat_id = message['chat']['id']
         text = message.get('text', '')
-
         if text.startswith('/start'):
             parts = text.split()
             if len(parts) > 1:
                 try:
                     payload_parts = parts[1].split('_')
-                    movie_id_str = payload_parts[0]
-                    content = movies.find_one({"_id": ObjectId(movie_id_str)})
-
+                    doc_id_str = payload_parts[0]
+                    content = movies.find_one({"_id": ObjectId(doc_id_str)})
                     if not content:
-                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Sorry, the content was not found."})
+                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Content not found."})
                         return jsonify(status='ok')
 
                     message_to_copy = None
                     if content.get('type') == 'series' and len(payload_parts) == 3:
                         s_num, e_num = int(payload_parts[1]), int(payload_parts[2])
                         target_episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == s_num and ep.get('episode_number') == e_num), None)
-                        if target_episode and 'message_id' in target_episode:
-                            message_to_copy = target_episode['message_id']
-                    elif content.get('type') == 'movie' and content.get('message_id'):
-                        message_to_copy = content['message_id']
+                        if target_episode: message_to_copy = target_episode.get('message_id')
+                    elif content.get('type') == 'movie' and len(payload_parts) == 2:
+                        quality_to_find = payload_parts[1]
+                        target_file = next((f for f in content.get('files', []) if f.get('quality') == quality_to_find), None)
+                        if target_file: message_to_copy = target_file.get('message_id')
                     
                     if message_to_copy:
                         payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_to_copy}
                         res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
                         if not res.json().get('ok'):
                              print(f"Failed to copy message: {res.text}")
-                             requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Sorry, there was an error sending the file. It might have been deleted from the channel."})
+                             requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file. It might have been deleted."})
                     else:
-                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Sorry, the requested file could not be found."})
+                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Requested file/quality not found."})
                 except Exception as e:
-                    print(f"Error processing start command: {e}")
+                    print(f"Error processing /start command: {e}")
                     requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred."})
             else:
                 requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome! Browse our site to find content."})
@@ -820,4 +746,4 @@ def telegram_webhook():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False)
