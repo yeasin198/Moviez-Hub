@@ -34,30 +34,17 @@ except Exception as e:
     content_collection = None
 
 # --- HTML এবং CSS টেমপ্লেট ---
-# (কোনো পরিবর্তন নেই, শুধু রেন্ডারিং পদ্ধতি পরিবর্তন করা হয়েছে)
-INDEX_TEMPLATE = """..."""
-DETAIL_TEMPLATE = """..."""
-ADMIN_LOGIN_TEMPLATE = """..."""
-ADMIN_DASHBOARD_TEMPLATE = """..."""
-ADMIN_EDIT_TEMPLATE = """..."""
-
-# সম্পূর্ণ টেমপ্লেটের কোড আগের উত্তর থেকে কপি করে এখানে বসান
-# অথবা, আমি এখানে আবার পেস্ট করে দিচ্ছি
-
 INDEX_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>MovieZone - Your Entertainment Hub</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
     <style>{{ css_code|safe }}</style>
 </head>
 <body>
-    <header class="main-nav">
-      <a href="{{ url_for('index') }}" class="logo">MovieZone</a>
-    </header>
+    <header class="main-nav"><a href="{{ url_for('index') }}" class="logo">MovieZone</a></header>
     <main>
         <div class="full-page-grid-container">
           <h2 class="full-page-grid-title">All Movies & Series</h2>
@@ -79,10 +66,7 @@ INDEX_TEMPLATE = """
       <a href="{{ url_for('index') }}" class="nav-item active"><i class="fas fa-home"></i><span>Home</span></a>
       <a href="{{ url_for('admin_login') if not session.get('logged_in') else url_for('admin_dashboard') }}" class="nav-item"><i class="fas fa-user-shield"></i><span>Admin</span></a>
     </nav>
-    <script>
-        const nav = document.querySelector('.main-nav');
-        if(nav){ window.addEventListener('scroll', () => { window.scrollY > 50 ? nav.classList.add('scrolled') : nav.classList.remove('scrolled'); }); }
-    </script>
+    <script> const nav = document.querySelector('.main-nav'); if(nav){ window.addEventListener('scroll', () => { window.scrollY > 50 ? nav.classList.add('scrolled') : nav.classList.remove('scrolled'); }); } </script>
 </body>
 </html>
 """
@@ -91,8 +75,7 @@ DETAIL_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>{{ content.title if content else "Not Found" }} - MovieZone</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
     <style>{{ css_code|safe }}</style>
@@ -122,13 +105,12 @@ DETAIL_TEMPLATE = """
 </html>
 """
 
-ADMIN_BASE_TEMPLATE = """
+ADMIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>{% block title %}Admin Panel{% endblock %} - MovieZone</title>
+    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Admin Panel - MovieZone</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
     <style>{{ css_code|safe }}</style>
 </head>
@@ -141,73 +123,54 @@ ADMIN_BASE_TEMPLATE = """
     </header>
     <main>
         <div class="admin-container">
-            {% block admin_content %}{% endblock %}
+            {% if page_type == 'login' %}
+                <h2>Admin Login</h2>
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                  {% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}
+                {% endwith %}
+                <form method="post" class="admin-form">
+                    <div class="form-group"><label for="username">Username</label><input type="text" name="username" required></div>
+                    <div class="form-group"><label for="password">Password</label><input type="password" name="password" required></div>
+                    <button type="submit">Login</button>
+                </form>
+            {% elif page_type == 'dashboard' %}
+                <h2>Admin Dashboard</h2>
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                  {% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}
+                {% endwith %}
+                <div class="table-responsive">
+                    <table class="content-table">
+                        <thead><tr><th>Poster</th><th>Title</th><th>Type</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            {% for content in contents %}
+                            <tr>
+                                <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
+                                <td>{{ content.title }}</td>
+                                <td><span class="type-badge">{{ content.type }}</span></td>
+                                <td class="action-buttons">
+                                    <a href="{{ url_for('admin_edit', content_id=content._id) }}" class="edit-btn">Edit</a>
+                                    <a href="{{ url_for('admin_delete', content_id=content._id) }}" class="delete-btn" onclick="return confirm('Are you sure?');">Delete</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% elif page_type == 'edit' %}
+                <h2>Edit: {{ content.title }}</h2>
+                <form method="post" class="admin-form">
+                    <div class="form-group"><label for="title">Title</label><input type="text" name="title" value="{{ content.title }}" required></div>
+                    <div class="form-group"><label for="description">Description</label><textarea name="description" rows="5">{{ content.description }}</textarea></div>
+                    <div class="form-group"><label for="poster_url">Poster URL</label><input type="url" name="poster_url" value="{{ content.poster_url }}"></div>
+                    <button type="submit">Save Changes</button>
+                    <a href="{{ url_for('admin_dashboard') }}" class="cancel-link">Cancel</a>
+                </form>
+            {% endif %}
         </div>
     </main>
 </body>
 </html>
 """
-
-ADMIN_LOGIN_TEMPLATE = """
-{% extends "admin_base" %}
-{% block title %}Login{% endblock %}
-{% block admin_content %}
-    <h2>Admin Login</h2>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}
-    {% endwith %}
-    <form method="post" class="admin-form">
-        <div class="form-group"><label for="username">Username</label><input type="text" name="username" required></div>
-        <div class="form-group"><label for="password">Password</label><input type="password" name="password" required></div>
-        <button type="submit">Login</button>
-    </form>
-{% endblock %}
-"""
-
-ADMIN_DASHBOARD_TEMPLATE = """
-{% extends "admin_base" %}
-{% block title %}Dashboard{% endblock %}
-{% block admin_content %}
-    <h2>Admin Dashboard</h2>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}
-    {% endwith %}
-    <div class="table-responsive">
-        <table class="content-table">
-            <thead><tr><th>Poster</th><th>Title</th><th>Type</th><th>Actions</th></tr></thead>
-            <tbody>
-                {% for content in contents %}
-                <tr>
-                    <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
-                    <td>{{ content.title }}</td>
-                    <td><span class="type-badge">{{ content.type }}</span></td>
-                    <td class="action-buttons">
-                        <a href="{{ url_for('admin_edit', content_id=content._id) }}" class="edit-btn">Edit</a>
-                        <a href="{{ url_for('admin_delete', content_id=content._id) }}" class="delete-btn" onclick="return confirm('Are you sure?');">Delete</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-{% endblock %}
-"""
-
-ADMIN_EDIT_TEMPLATE = """
-{% extends "admin_base" %}
-{% block title %}Edit Content{% endblock %}
-{% block admin_content %}
-    <h2>Edit: {{ content.title }}</h2>
-    <form method="post" class="admin-form">
-        <div class="form-group"><label for="title">Title</label><input type="text" name="title" value="{{ content.title }}" required></div>
-        <div class="form-group"><label for="description">Description</label><textarea name="description" rows="5">{{ content.description }}</textarea></div>
-        <div class="form-group"><label for="poster_url">Poster URL</label><input type="url" name="poster_url" value="{{ content.poster_url }}"></div>
-        <button type="submit">Save Changes</button>
-        <a href="{{ url_for('admin_dashboard') }}" class="cancel-link">Cancel</a>
-    </form>
-{% endblock %}
-"""
-
 
 CSS_CODE = """
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
@@ -246,7 +209,7 @@ a { text-decoration: none; color: inherit; }
 .detail-overview { font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
 .watch-now-btn { background-color: var(--netflix-red); color: white; padding: 15px 30px; font-size: 1.2rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; margin-bottom: 25px; transition: transform 0.2s ease, background-color 0.2s ease; }
 .watch-now-btn:hover { transform: scale(1.05); background-color: #f61f29; }
-.admin-container { padding: 80px 20px 40px; max-width: 800px; margin: 0 auto; }
+.admin-container { padding: 100px 20px 40px; max-width: 800px; margin: 0 auto; }
 .admin-form { background: #222; padding: 25px; border-radius: 8px; }
 .form-group { margin-bottom: 15px; } .form-group label { display: block; margin-bottom: 8px; font-weight: bold; }
 input[type="text"], input[type="url"], input[type="password"], textarea { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid #333; font-size: 1rem; background: #333; color: var(--text-light); }
@@ -254,8 +217,8 @@ input[type="text"], input[type="url"], input[type="password"], textarea { width:
 .flash-msg { padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
 .flash-msg.success { background-color: #1f4e2c; color: #d4edda; }
 .flash-msg.error { background-color: #721c24; color: #f8d7da; }
-.content-table { width: 100%; border-collapse: collapse; }
-.content-table th, .content-table td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
+.table-responsive { overflow-x: auto; } .content-table { width: 100%; border-collapse: collapse; }
+.content-table th, .content-table td { padding: 12px; text-align: left; border-bottom: 1px solid #333; white-space: nowrap; }
 .content-table th { background: #252525; }
 .action-buttons { display: flex; gap: 10px; }
 .action-buttons a { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; }
@@ -264,11 +227,6 @@ input[type="text"], input[type="url"], input[type="password"], textarea { width:
 .cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
 @media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
 """
-
-# === Jinja2 এর জন্য সঠিক লোডার এবং রেন্ডারার (ফিক্সড) ===
-# Flask এর নিজস্ব render_template_string ব্যবহার করা হচ্ছে, যা কন্টেক্সট হ্যান্ডেল করে
-app.jinja_env.globals['CSS_CODE'] = CSS_CODE
-app.jinja_env.globals['BOT_USERNAME'] = BOT_USERNAME
 
 # --- অ্যাডমিন লগইন ডেকোরেটর ---
 def login_required(f):
@@ -329,18 +287,13 @@ def admin_login():
             session['logged_in'] = True
             return redirect(url_for('admin_dashboard'))
         else: flash('Invalid credentials. Please try again.', 'error')
-    
-    # === পরিবর্তন এখানে ===
-    # admin_login.html কে admin_base.html এর সাথে যুক্ত করা হচ্ছে
-    full_template = ADMIN_BASE_TEMPLATE.replace("{% block admin_content %}", ADMIN_LOGIN_TEMPLATE)
-    return render_template_string(full_template, css_code=CSS_CODE)
+    return render_template_string(ADMIN_TEMPLATE, page_type='login', css_code=CSS_CODE)
 
 @app.route('/admin/dashboard')
 @login_required
 def admin_dashboard():
     all_content = list(content_collection.find().sort('_id', -1))
-    full_template = ADMIN_BASE_TEMPLATE.replace("{% block admin_content %}", ADMIN_DASHBOARD_TEMPLATE)
-    return render_template_string(full_template, contents=all_content, css_code=CSS_CODE)
+    return render_template_string(ADMIN_TEMPLATE, page_type='dashboard', contents=all_content, css_code=CSS_CODE)
 
 @app.route('/admin/edit/<content_id>', methods=['GET', 'POST'])
 @login_required
@@ -351,8 +304,7 @@ def admin_edit(content_id):
         content_collection.update_one({'_id': ObjectId(content_id)}, {'$set': updated_data})
         flash('Content updated successfully!', 'success')
         return redirect(url_for('admin_dashboard'))
-    full_template = ADMIN_BASE_TEMPLATE.replace("{% block admin_content %}", ADMIN_EDIT_TEMPLATE)
-    return render_template_string(full_template, content=content, css_code=CSS_CODE)
+    return render_template_string(ADMIN_TEMPLATE, page_type='edit', content=content, css_code=CSS_CODE)
 
 @app.route('/admin/delete/<content_id>')
 @login_required
@@ -369,6 +321,7 @@ def admin_logout():
 # --- টেলিগ্রাম ওয়েবহুক ---
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
+    # ... (এই ফাংশনটি আগের মতোই থাকবে, কোনো পরিবর্তন নেই)
     data = request.get_json()
     if 'channel_post' in data:
         post = data['channel_post']
