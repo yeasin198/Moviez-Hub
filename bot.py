@@ -13,7 +13,7 @@ MONGO_URI = "mongodb+srv://mesohas358:mesohas358@cluster0.6kxy1vc.mongodb.net/mo
 BOT_TOKEN = "7931162174:AAGK8aSdqoYpZ4bsSXp36dp6zbVnYeenowA"
 TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
 ADMIN_CHANNEL_ID = "-1002853936940"
-BOT_USERNAME = "Mtest100bot"
+BOT_USERNAME = "CTGVideoPlayerBot"
 ADMIN_USER = "Nahid270"
 ADMIN_PASS = "Nahid270"
 # ======================================================================
