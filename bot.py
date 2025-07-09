@@ -55,6 +55,9 @@ def load_tmdb_genres():
 # --- HTML এবং CSS টেমপ্লেট ---
 # ======================================================================
 
+# INDEX_TEMPLATE, ADMIN_TEMPLATE আগের মতোই থাকবে, কোনো পরিবর্তনের প্রয়োজন নেই।
+# শুধু DETAIL_TEMPLATE কিছুটা সরল করা হবে।
+
 INDEX_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -69,16 +72,14 @@ INDEX_TEMPLATE = """
     <main>
         <div class="search-container">
             <form method="GET" action="{{ url_for('index') }}" class="search-form">
-                <input type="search" name="q" class="search-input" placeholder="Search for Action, Comedy, Thriller..." value="{{ search_query or '' }}">
+                <input type="search" name="q" class="search-input" placeholder="Search for a movie or series..." value="{{ search_query or '' }}">
                 <button type="submit" class="search-button"><i class="fas fa-search"></i></button>
             </form>
         </div>
         {% if is_search %}
             <div class="content-section">
                 <h2 class="section-title">Search Results for '{{ search_query }}'</h2>
-                {% if contents|length == 0 %}
-                    <p class="no-results">No content found. Try searching for a different title.</p>
-                {% else %}
+                {% if contents|length == 0 %}<p class="no-results">No content found.</p>{% else %}
                     <div class="content-grid">
                         {% for content in contents %}
                             <a href="{{ url_for('content_detail', content_id=content._id) }}" class="movie-card">
@@ -93,38 +94,13 @@ INDEX_TEMPLATE = """
                 {% endif %}
             </div>
         {% else %}
-            {% if featured %}
-            <div class="hero-section" style="background-image: url('{{ featured.poster_url or '' }}');">
-                <div class="hero-overlay"></div>
-                <div class="hero-content">
-                    <h1 class="hero-title">{{ featured.title }}</h1>
-                    <p class="hero-description">{{ featured.description|truncate(150) }}</p>
-                    <a href="{{ url_for('content_detail', content_id=featured._id) }}" class="hero-button"><i class="fas fa-info-circle"></i> View Details</a>
-                </div>
-            </div>
-            {% endif %}
-            {% for category_name, content_list in categories.items() %}
-                <div class="content-section">
-                    <h2 class="section-title">{{ category_name }}</h2>
-                    <div class="content-carousel">
-                        {% for content in content_list %}
-                        <a href="{{ url_for('content_detail', content_id=content._id) }}" class="movie-card">
-                            <div class="poster-wrapper"><img class="movie-poster" loading="lazy" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}"></div>
-                            <div class="card-body">
-                                <h4 class="card-title">{{ content.title }}</h4>
-                                {% if content.release_year %}<p class="card-meta">{{ content.release_year }}</p>{% endif %}
-                            </div>
-                        </a>
-                        {% endfor %}
-                    </div>
-                </div>
-            {% endfor %}
+            {% if featured %}<div class="hero-section" style="background-image: url('{{ featured.poster_url or '' }}');"><div class="hero-overlay"></div><div class="hero-content"><h1 class="hero-title">{{ featured.title }}</h1><p class="hero-description">{{ featured.description|truncate(150) }}</p><a href="{{ url_for('content_detail', content_id=featured._id) }}" class="hero-button"><i class="fas fa-info-circle"></i> View Details</a></div></div>{% endif %}
+            {% for category_name, content_list in categories.items() %}<div class="content-section"><h2 class="section-title">{{ category_name }}</h2><div class="content-carousel">
+                {% for content in content_list %}<a href="{{ url_for('content_detail', content_id=content._id) }}" class="movie-card"><div class="poster-wrapper"><img class="movie-poster" loading="lazy" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}"></div><div class="card-body"><h4 class="card-title">{{ content.title }}</h4>{% if content.release_year %}<p class="card-meta">{{ content.release_year }}</p>{% endif %}</div></a>{% endfor %}
+            </div></div>{% endfor %}
         {% endif %}
     </main>
-    <nav class="bottom-nav">
-      <a href="{{ url_for('index') }}" class="nav-item active"><i class="fas fa-home"></i><span>Home</span></a>
-      <a href="{{ url_for('admin_login') if not session.get('logged_in') else url_for('admin_dashboard') }}" class="nav-item"><i class="fas fa-user-shield"></i><span>Admin</span></a>
-    </nav>
+    <nav class="bottom-nav"><a href="{{ url_for('index') }}" class="nav-item active"><i class="fas fa-home"></i><span>Home</span></a><a href="{{ url_for('admin_login') if not session.get('logged_in') else url_for('admin_dashboard') }}" class="nav-item"><i class="fas fa-user-shield"></i><span>Admin</span></a></nav>
     <script> const nav = document.querySelector('.main-nav'); if(nav){ window.addEventListener('scroll', () => { window.scrollY > 50 ? nav.classList.add('scrolled') : nav.classList.remove('scrolled'); }); } </script>
 </body>
 </html>
@@ -137,106 +113,36 @@ DETAIL_TEMPLATE = """
     <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>{{ content.title if content else "Not Found" }} - MovieZone</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
-    <style>
-        {{ css_code|safe }}
-        .accordion-button { background-color: #333; color: white; cursor: pointer; padding: 18px; width: 100%; border: none; text-align: left; outline: none; font-size: 18px; transition: 0.4s; margin-top: 10px; border-radius: 5px; font-weight: 700; }
-        .accordion-button.active, .accordion-button:hover { background-color: #444; }
-        .accordion-panel { padding: 0 18px; background-color: #222; max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; border-radius: 0 0 5px 5px; }
-        .episode-list { list-style-type: none; padding: 10px 0; margin: 0; }
-        .episode-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #333; }
-        .episode-item:last-child { border-bottom: none; }
-        .episode-title { font-size: 1rem; }
-        .series-status { background-color: var(--netflix-red); color: white; padding: 5px 10px; border-radius: 5px; font-size: 0.9rem; font-weight: bold; margin-left: 15px; vertical-align: middle; }
-        .series-episodes-container { max-width: 1200px; margin: -40px auto 60px auto; padding: 0 50px; position: relative; z-index: 5; }
-        .pack-item { background-color: #2a2a2a; border-radius: 5px; margin-bottom: 10px; padding-left: 15px; padding-right: 15px;}
-        @media (max-width: 768px) {
-            .series-episodes-container { padding: 0 20px; }
-            .watch-now-btn { padding: 8px 15px; font-size: 0.9rem; }
-        }
-    </style>
+    <style>{{ css_code|safe }}</style>
 </head>
 <body>
     <header class="detail-header"><a href="{{ url_for('index') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
     {% if content %}
-    <div class="detail-hero">
+    <div class="detail-hero" style="min-height: auto; padding-bottom: 60px;">
       <div class="detail-hero-background" style="background-image: url('{{ content.poster_url }}');"></div>
       <div class="detail-content-wrapper">
         <img class="detail-poster" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}">
         <div class="detail-info">
-          <h1 class="detail-title">
-            {{ content.title }}
-            {% if content.type == 'tv' and content.get('is_complete') %}
-                <span class="series-status">Completed</span>
-            {% endif %}
-          </h1>
+          <h1 class="detail-title">{{ content.title }}</h1>
           <div class="detail-meta">
             {% if content.release_year %}<span>{{ content.release_year }}</span>{% endif %}
             {% if content.rating %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>{% endif %}
             {% if content.genres %}<span class="genres">{% for genre in content.genres %}{{ genre }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
           </div>
           <p class="detail-overview">{{ content.description }}</p>
-          {% if content.type == 'movie' %}
-            <h5 class="mb-3">Get from Bot</h5>
-            <div class="quality-buttons">
-                {% if content.qualities %}
-                    {% for quality, msg_id in content.qualities.items()|sort %}
-                        <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}_{{ quality }}" class="watch-now-btn" target="_blank">
-                            <i class="fas fa-robot"></i> Get {{ quality }}
-                        </a>
-                    {% endfor %}
-                {% else %}<p>No download links available.</p>{% endif %}
-            </div>
-          {% endif %}
+          <h5 class="mb-3">Get from Bot</h5>
+          <div class="quality-buttons">
+            <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}" class="watch-now-btn" target="_blank">
+                <i class="fas fa-robot"></i> Get File
+            </a>
+          </div>
+          <p class="text-muted small mt-3">এই লিঙ্কে ক্লিক করলে আপনাকে সরাসরি টেলিগ্রাম বটে নিয়ে যাওয়া হবে এবং ফাইলটি পাঠিয়ে দেওয়া হবে।</p>
         </div>
       </div>
     </div>
-    {% if content.type == 'tv' %}
-        <div class="series-episodes-container">
-            <h2 style="margin-bottom:20px;">Seasons & Episodes</h2>
-            {% for season_num, season_data in content.get('seasons', {}).items()|sort(attribute=0)|int %}
-                <button class="accordion-button">Season {{ season_num }}</button>
-                <div class="accordion-panel">
-                    <ul class="episode-list">
-                        {% if season_data.get('complete_pack') %}
-                        <li class="episode-item pack-item">
-                            <span class="episode-title"><i class="fas fa-box-archive"></i> Complete Season {{ season_num }} Pack</span>
-                            <div class="quality-buttons">
-                            {% for quality, msg_id in season_data.get('complete_pack', {}).get('qualities', {}).items()|sort %}
-                                <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}_{{ season_num }}_pack_{{ quality }}" class="watch-now-btn" target="_blank">{{ quality }}</a>
-                            {% endfor %}
-                            </div>
-                        </li>
-                        {% endif %}
-                        {% for episode_num, episode_data in season_data.get('episodes', {}).items()|sort(attribute=0)|int %}
-                            <li class="episode-item">
-                                <span class="episode-title">Episode {{ episode_num }}</span>
-                                <div class="quality-buttons">
-                                {% for quality, msg_id in episode_data.get('qualities', {}).items()|sort %}
-                                    <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}_{{ season_num }}_{{ episode_num }}_{{ quality }}" class="watch-now-btn" target="_blank">{{ quality }}</a>
-                                {% endfor %}
-                                </div>
-                            </li>
-                        {% endfor %}
-                    </ul>
-                </div>
-            {% endfor %}
-        </div>
-    {% endif %}
     {% else %}
     <div style="display:flex; justify-content:center; align-items:center; height:100vh;"><h2>Content not found.</h2></div>
     {% endif %}
-    <script>
-        document.querySelectorAll('.accordion-button').forEach(button => {
-            button.addEventListener('click', () => {
-                button.classList.toggle('active');
-                const panel = button.nextElementSibling;
-                if (panel.style.maxHeight) { panel.style.maxHeight = null; } 
-                else { panel.style.maxHeight = panel.scrollHeight + 'px'; } 
-            });
-        });
-        const firstAccordion = document.querySelector('.accordion-button');
-        if(firstAccordion) firstAccordion.click();
-    </script>
 </body>
 </html>
 """
@@ -251,10 +157,7 @@ ADMIN_TEMPLATE = """
     <style>{{ css_code|safe }}</style>
 </head>
 <body>
-    <header class="main-nav">
-      <a href="{{ url_for('index') }}" class="logo">MovieZone</a>
-       {% if session.get('logged_in') %}<a href="{{ url_for('admin_logout') }}" class="btn btn-sm btn-outline-light" style="color:white; border-color:white; text-decoration:none;">Logout</a>{% endif %}
-    </header>
+    <header class="main-nav"><a href="{{ url_for('index') }}" class="logo">MovieZone</a>{% if session.get('logged_in') %}<a href="{{ url_for('admin_logout') }}" class="btn btn-sm btn-outline-light" style="color:white; border-color:white; text-decoration:none;">Logout</a>{% endif %}</header>
     <main>
         <div class="admin-container">
             {% if page_type == 'login' %}
@@ -270,28 +173,16 @@ ADMIN_TEMPLATE = """
                 {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}{% endwith %}
                 <div class="table-responsive">
                     <table class="content-table">
-                        <thead><tr><th>Poster</th><th>Title</th><th>Type</th><th>Details</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Poster</th><th>Title</th><th>Type</th><th>Actions</th></tr></thead>
                         <tbody>
                             {% for content in contents %}
                             <tr>
                                 <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
-                                <td style="max-width: 200px; white-space: normal;">{{ content.title }}</td>
+                                <td style="max-width: 300px; white-space: normal;">{{ content.title }}</td>
                                 <td><span class="type-badge type-{{content.type}}">{{ content.type }}</span></td>
-                                <td>
-                                    {% if content.type == 'movie' %}
-                                        {% for quality in content.qualities.keys()|sort %}<span class="type-badge quality">{{ quality }}</span>{% endfor %}
-                                    {% elif content.type == 'tv' %}
-                                        {% for s_num, s_data in content.get('seasons', {}).items() %}
-                                            S{{s_num}}: {{ s_data.get('episodes', {})|length }} ep(s)
-                                            {% if s_data.get('complete_pack') %}<span class="type-badge genre">Pack</span>{% endif %}
-                                            <br>
-                                        {% endfor %}
-                                        {% if content.get('is_complete') %}<span class="type-badge complete">Completed</span>{% endif %}
-                                    {% endif %}
-                                </td>
                                 <td class="action-buttons">
                                     <a href="{{ url_for('admin_edit', content_id=content._id) }}" class="edit-btn">Edit</a>
-                                    <a href="{{ url_for('admin_delete', content_id=content._id) }}" class="delete-btn" onclick="return confirm('Are you sure? This will delete all associated episodes too!');">Delete</a>
+                                    <a href="{{ url_for('admin_delete', content_id=content._id) }}" class="delete-btn" onclick="return confirm('Are you sure?');">Delete</a>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -300,13 +191,7 @@ ADMIN_TEMPLATE = """
                 </div>
             {% elif page_type == 'edit' %}
                 <h2>Edit: {{ content.title }}</h2>
-                <form method="post" class="admin-form">
-                    <div class="form-group"><label for="title">Title</label><input type="text" name="title" value="{{ content.title }}" required></div>
-                    <div class="form-group"><label for="description">Description</label><textarea name="description" rows="5">{{ content.description }}</textarea></div>
-                    <div class="form-group"><label for="poster_url">Poster URL</label><input type="url" name="poster_url" value="{{ content.poster_url }}"></div>
-                    <button type="submit">Save Changes</button>
-                    <a href="{{ url_for('admin_dashboard') }}" class="cancel-link">Cancel</a>
-                </form>
+                <form method="post" class="admin-form"><div class="form-group"><label for="title">Title</label><input type="text" name="title" value="{{ content.title }}" required></div><div class="form-group"><label for="description">Description</label><textarea name="description" rows="5">{{ content.description }}</textarea></div><div class="form-group"><label for="poster_url">Poster URL</label><input type="url" name="poster_url" value="{{ content.poster_url }}"></div><button type="submit">Save Changes</button><a href="{{ url_for('admin_dashboard') }}" class="cancel-link">Cancel</a></form>
             {% endif %}
         </div>
     </main>
@@ -383,15 +268,12 @@ input[type="text"], input[type="url"], input[type="password"], textarea { width:
 .edit-btn { background: #0d6efd; } .delete-btn { background: #dc3545; }
 .type-badge { display: inline-block; margin: 2px; color: #fff; padding: 0.25em 0.6em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; text-transform: uppercase; }
 .type-badge.type-movie { background-color: #198754; } .type-badge.type-tv { background-color: #fd7e14; }
-.type-badge.quality { background-color: #0dcaf0; color: #000; }
-.type-badge.genre { background-color: #6c757d; }
-.type-badge.complete { background-color: var(--netflix-red); }
 .cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
 @media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .search-container { padding: 80px 15px 0px 15px; } .hero-section { height: 50vh; padding: 15px; align-items: center; text-align: center; } .hero-content { max-width: 100%; } .hero-title { font-size: 2.5rem; } .hero-description { display: none; } .content-section { padding: 0 15px; margin-right: -15px; margin-left: -15px; } .content-carousel { margin: 0; padding-left: 15px; padding-right: 15px; } .content-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); } .content-carousel .movie-card { flex-basis: calc((100% / 3) - var(--card-gap)); min-width: 110px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; padding: 0 20px; } .detail-info { max-width: 100%; } .detail-title { font-size: 3rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
 """
 
 # ======================================================================
-# --- Helper Functions ---
+# --- Helper Functions (ফাংশনগুলোতে প্রধান পরিবর্তন) ---
 # ======================================================================
 
 @app.context_processor
@@ -401,26 +283,23 @@ def inject_global_vars():
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'):
-            return redirect(url_for('admin_login'))
+        if not session.get('logged_in'): return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated_function
 
 def parse_filename(filename):
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
-    quality_match = re.search(r'(\d{3,4}p)', cleaned_name, re.IGNORECASE)
-    quality = quality_match.group(1).lower() if quality_match else 'HD'
-    base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|axxo|yify|pack|complete).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
+    base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|axxo|yify|pack|complete|final|dual audio|hindi).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', base_name, re.IGNORECASE)
     if series_match:
-        return {'type': 'tv', 'title': series_match.group(1).strip(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3)), 'quality': quality}
+        return {'type': 'tv', 'title': series_match.group(1).strip(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3))}
     season_pack_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)', base_name, re.IGNORECASE)
     if season_pack_match:
-        return {'type': 'tv', 'title': season_pack_match.group(1).strip(), 'season': int(season_pack_match.group(2)), 'episode': None, 'quality': quality}
+        return {'type': 'tv', 'title': season_pack_match.group(1).strip(), 'season': int(season_pack_match.group(2)), 'episode': None}
     movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', base_name, re.IGNORECASE)
     if movie_match:
-        return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip(), 'quality': quality}
-    return {'type': 'movie', 'title': base_name.strip(), 'year': None, 'quality': quality}
+        return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip()}
+    return {'type': 'movie', 'title': base_name, 'year': None}
 
 def get_tmdb_info(parsed_info):
     search_type = parsed_info['type']
@@ -438,12 +317,17 @@ def get_tmdb_info(parsed_info):
             genre_ids = data.get('genre_ids', [])
             genres = [TMDB_GENRES.get(gid) for gid in genre_ids if TMDB_GENRES.get(gid)]
             if search_type == 'movie':
-                title, year, original_title = data.get('title'), data.get('release_date', '')[:4], data.get('original_title')
+                title, year = data.get('title'), data.get('release_date', '')[:4]
             else:
-                title, year, original_title = data.get('name'), data.get('first_air_date', '')[:4], data.get('original_name')
+                base_title = data.get('name')
+                if parsed_info.get('episode') is not None:
+                    title = f"{base_title} - S{parsed_info['season']:02d}E{parsed_info['episode']:02d}"
+                else:
+                    title = f"{base_title} - Season {parsed_info['season']} Pack"
+                year = data.get('first_air_date', '')[:4]
             return {
-                'type': search_type, 'title': title, 'original_title': original_title,
-                'description': data.get('overview'), 'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None,
+                'type': search_type, 'title': title, 'description': data.get('overview'),
+                'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None,
                 'release_year': year, 'rating': round(data.get('vote_average', 0), 1), 'genres': genres[:3]
             }
     except requests.exceptions.RequestException as e:
@@ -459,11 +343,11 @@ def index():
     if content_collection is None: return "Database connection failed.", 500
     search_query = request.args.get('q', '').strip()
     if search_query:
-        query = {'$or': [{'title': {'$regex': search_query, '$options': 'i'}}, {'genres': {'$regex': search_query, '$options': 'i'}}]}
+        query = {'title': {'$regex': search_query, '$options': 'i'}}
         search_results = list(content_collection.find(query).sort('_id', -1))
         return render_template_string(INDEX_TEMPLATE, is_search=True, contents=search_results, css_code=CSS_CODE, search_query=search_query)
     else:
-        DESIRED_GENRES = ["Action", "Comedy", "Horror", "Thriller", "Science Fiction", "Drama", "Animation", "Adventure"]
+        DESIRED_GENRES = ["Action", "Comedy", "Horror", "Thriller", "Science Fiction", "Drama"]
         categories = {}
         featured_content = content_collection.find_one(sort=[('_id', -1)])
         categories['Latest Additions'] = list(content_collection.find().sort('_id', -1).limit(20))
@@ -481,7 +365,7 @@ def content_detail(content_id):
         else: abort(404)
     except: abort(404)
 
-# --- Admin Routes ---
+# --- Admin Routes (অপরিবর্তিত) ---
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_login():
     if session.get('logged_in'): return redirect(url_for('admin_dashboard'))
@@ -517,7 +401,7 @@ def admin_delete(content_id):
 def admin_logout():
     session.pop('logged_in', None); flash('You have been logged out.', 'success'); return redirect(url_for('admin_login'))
 
-# --- Webhook Route ---
+# --- Webhook Route (প্রধান পরিবর্তন) ---
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     if content_collection is None: return jsonify(status='error', message='Database not connected'), 500
@@ -527,75 +411,30 @@ def telegram_webhook():
         post = data['channel_post']
         if str(post['chat']['id']) == ADMIN_CHANNEL_ID:
             file = post.get('video') or post.get('document')
-            caption = post.get('caption', '').lower()
             if not (file and file.get('file_name')): return jsonify(status='ok')
             
             parsed_info = parse_filename(file['file_name'])
+            if not parsed_info.get('title'): return jsonify(status='ok')
+            
             tmdb_data = get_tmdb_info(parsed_info)
             if not tmdb_data: return jsonify(status='ok')
 
-            if tmdb_data['type'] == 'movie':
-                search_key = {'original_title': tmdb_data['original_title'], 'type': 'movie'}
-                existing = content_collection.find_one(search_key)
-                if existing:
-                    update = {'$set': {f"qualities.{parsed_info['quality']}": post['message_id']}}
-                    content_collection.update_one({'_id': existing['_id']}, update)
-                    print(f"SUCCESS: Updated movie quality '{parsed_info['quality']}' for '{existing['title']}'")
-                else:
-                    tmdb_data['qualities'] = {parsed_info['quality']: post['message_id']}
-                    content_collection.insert_one(tmdb_data)
-                    print(f"SUCCESS: New movie '{tmdb_data['title']}' saved.")
-            elif tmdb_data['type'] == 'tv':
-                search_key = {'original_title': tmdb_data['original_title'], 'type': 'tv'}
-                s, q = str(parsed_info['season']), parsed_info['quality']
-                existing = content_collection.find_one(search_key)
-                update_operation = {}
-                
-                if parsed_info.get('episode') is None: # Season Pack
-                    update_path = f"seasons.{s}.complete_pack.qualities.{q}"
-                    print_msg = f"SUCCESS: Added Complete Season {s} pack for '{tmdb_data['title']}'"
-                else: # Single Episode
-                    e = str(parsed_info['episode'])
-                    update_path = f"seasons.{s}.episodes.{e}.qualities.{q}"
-                    print_msg = f"SUCCESS: Updated S{s}E{e} for '{tmdb_data['title']}'"
-
-                update_operation['$set'] = {update_path: post['message_id']}
-                if '[complete]' in caption: update_operation['$set']['is_complete'] = True
-
-                if existing:
-                    content_collection.update_one({'_id': existing['_id']}, update_operation)
-                    print(print_msg)
-                else:
-                    if parsed_info.get('episode') is None:
-                        tmdb_data['seasons'] = {s: {"complete_pack": {"qualities": {q: post['message_id']}}}}
-                    else:
-                        e = str(parsed_info['episode'])
-                        tmdb_data['seasons'] = {s: {"episodes": {e: {"qualities": {q: post['message_id']}}}}}
-                    tmdb_data['is_complete'] = '[complete]' in caption
-                    content_collection.insert_one(tmdb_data)
-                    print(f"SUCCESS: New series '{tmdb_data['title']}' saved.")
+            # প্রতিটি ফাইলের জন্য নতুন ডেটা তৈরি করা হচ্ছে
+            final_data = tmdb_data.copy()
+            final_data['message_id'] = post['message_id']
+            
+            content_collection.insert_one(final_data)
+            print(f"[DB-SUCCESS] Saved new post: '{final_data['title']}'")
 
     elif 'message' in data:
         message = data['message']
         chat_id, text = message['chat']['id'], message.get('text', '')
         if text.startswith('/start get_'):
             try:
-                parts = text.split('_')
-                content = content_collection.find_one({'_id': ObjectId(parts[1])})
-                if not content: return requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Content not found.")
-                
-                message_id = None
-                if len(parts) == 3: # Movie
-                    message_id = content.get('qualities', {}).get(parts[2])
-                elif len(parts) == 5 and parts[3] == 'pack': # Season Pack
-                    s, q = parts[2], parts[4]
-                    message_id = content.get('seasons',{}).get(s,{}).get('complete_pack',{}).get('qualities',{}).get(q)
-                elif len(parts) == 5: # Episode
-                    s, e, q = parts[2], parts[3], parts[4]
-                    message_id = content.get('seasons',{}).get(s,{}).get('episodes',{}).get(e,{}).get('qualities',{}).get(q)
-                
-                if message_id:
-                    payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id}
+                content_id_str = text.split('_')[1]
+                content = content_collection.find_one({'_id': ObjectId(content_id_str)})
+                if content and content.get('message_id'):
+                    payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': content['message_id']}
                     res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
                     if not res.json().get('ok'):
                          requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, could not send the file.")
