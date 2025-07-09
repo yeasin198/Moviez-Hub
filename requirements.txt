@@ -5,3 +5,4 @@ pymongo
 Jinja2
 pyrogram
 TgCrypto
+apscheduler
