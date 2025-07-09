@@ -1,10 +1,9 @@
 import os
 import re
 import requests
-from flask import Flask, request, jsonify, abort, render_template_string, redirect, url_for, session, flash, Response
+from flask import Flask, request, jsonify, abort, render_template_string, redirect, url_for, session, flash
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-from jinja2 import Environment, BaseLoader, TemplateNotFound
 from functools import wraps
 
 # ======================================================================
@@ -34,32 +33,50 @@ except Exception as e:
     print(f"FATAL: Could not connect to MongoDB. Error: {e}")
     content_collection = None
 
-# --- আপনার দেওয়া ডিজাইন থেকে HTML এবং CSS টেমপ্লেট ---
-# --- (আমাদের সিস্টেমের সাথে ইন্টিগ্রেট করা) ---
-TEMPLATES = {
-    "base": """
+# --- HTML এবং CSS টেমপ্লেট ---
+# (কোনো পরিবর্তন নেই, শুধু রেন্ডারিং পদ্ধতি পরিবর্তন করা হয়েছে)
+INDEX_TEMPLATE = """..."""
+DETAIL_TEMPLATE = """..."""
+ADMIN_LOGIN_TEMPLATE = """..."""
+ADMIN_DASHBOARD_TEMPLATE = """..."""
+ADMIN_EDIT_TEMPLATE = """..."""
+
+# সম্পূর্ণ টেমপ্লেটের কোড আগের উত্তর থেকে কপি করে এখানে বসান
+# অথবা, আমি এখানে আবার পেস্ট করে দিচ্ছি
+
+INDEX_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>{% block title %}MovieZone{% endblock %} - Your Entertainment Hub</title>
+    <title>MovieZone - Your Entertainment Hub</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
     <style>{{ css_code|safe }}</style>
 </head>
 <body>
     <header class="main-nav">
       <a href="{{ url_for('index') }}" class="logo">MovieZone</a>
-      <!-- Search form can be added later if needed -->
     </header>
-
     <main>
-        {% block content %}{% endblock %}
+        <div class="full-page-grid-container">
+          <h2 class="full-page-grid-title">All Movies & Series</h2>
+          {% if contents|length == 0 %}
+            <p style="text-align:center; color: #a0a0a0; margin-top: 40px;">No content found.</p>
+          {% else %}
+            <div class="full-page-grid">
+                {% for content in contents %}
+                    <a href="{{ url_for('content_detail', content_id=content._id) }}" class="movie-card">
+                      <img class="movie-poster" loading="lazy" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}">
+                      <div class="card-info-overlay"><h4 class="card-info-title">{{ content.title }}</h4></div>
+                    </a>
+                {% endfor %}
+            </div>
+          {% endif %}
+        </div>
     </main>
-
     <nav class="bottom-nav">
       <a href="{{ url_for('index') }}" class="nav-item active"><i class="fas fa-home"></i><span>Home</span></a>
-      <!-- Other nav items can be added later -->
       <a href="{{ url_for('admin_login') if not session.get('logged_in') else url_for('admin_dashboard') }}" class="nav-item"><i class="fas fa-user-shield"></i><span>Admin</span></a>
     </nav>
     <script>
@@ -68,59 +85,73 @@ TEMPLATES = {
     </script>
 </body>
 </html>
-""",
-    "index": """
-{% extends "base" %}
-{% block title %}Home{% endblock %}
-{% block content %}
-    <div class="full-page-grid-container">
-      <h2 class="full-page-grid-title">All Movies & Series</h2>
-      {% if contents|length == 0 %}
-        <p style="text-align:center; color: #a0a0a0; margin-top: 40px;">No content found.</p>
-      {% else %}
-        <div class="full-page-grid">
-            {% for content in contents %}
-                <a href="{{ url_for('content_detail', content_id=content._id) }}" class="movie-card">
-                  <img class="movie-poster" loading="lazy" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}">
-                  <div class="card-info-overlay"><h4 class="card-info-title">{{ content.title }}</h4></div>
-                </a>
-            {% endfor %}
+"""
+
+DETAIL_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>{{ content.title if content else "Not Found" }} - MovieZone</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
+    <style>{{ css_code|safe }}</style>
+</head>
+<body>
+    <header class="detail-header"><a href="{{ url_for('index') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
+    {% if content %}
+    <div class="detail-hero" style="min-height: auto; padding-bottom: 60px;">
+      <div class="detail-hero-background" style="background-image: url('{{ content.poster_url }}');"></div>
+      <div class="detail-content-wrapper">
+        <img class="detail-poster" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}">
+        <div class="detail-info">
+          <h1 class="detail-title">{{ content.title }}</h1>
+          <div class="detail-meta">
+            {% if content.release_year %}<span>{{ content.release_year }}</span>{% endif %}
+            {% if content.rating %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>{% endif %}
+          </div>
+          <p class="detail-overview">{{ content.description }}</p>
+          <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}" class="watch-now-btn" target="_blank"><i class="fas fa-robot"></i> Get from Bot</a>
         </div>
-      {% endif %}
-    </div>
-{% endblock %}
-""",
-    "detail": """
-{% extends "base" %}
-{% block title %}{{ content.title if content else "Not Found" }}{% endblock %}
-{% block content %}
-<header class="detail-header"><a href="{{ url_for('index') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
-{% if content %}
-<div class="detail-hero" style="min-height: auto; padding-bottom: 60px;">
-  <div class="detail-hero-background" style="background-image: url('{{ content.poster_url }}');"></div>
-  <div class="detail-content-wrapper">
-    <img class="detail-poster" src="{{ content.poster_url or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ content.title }}">
-    <div class="detail-info">
-      <h1 class="detail-title">{{ content.title }}</h1>
-      <div class="detail-meta">
-        {% if content.release_year %}<span>{{ content.release_year }}</span>{% endif %}
-        {% if content.rating %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>{% endif %}
       </div>
-      <p class="detail-overview">{{ content.description }}</p>
-      <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}" class="watch-now-btn" target="_blank"><i class="fas fa-robot"></i> Get from Bot</a>
     </div>
-  </div>
-</div>
-{% else %}
-<div style="display:flex; justify-content:center; align-items:center; height:100vh;"><h2>Content not found.</h2></div>
-{% endif %}
-{% endblock %}
-""",
-    "admin_login": """
-{% extends "base" %}
-{% block title %}Admin Login{% endblock %}
-{% block content %}
-<div class="admin-container">
+    {% else %}
+    <div style="display:flex; justify-content:center; align-items:center; height:100vh;"><h2>Content not found.</h2></div>
+    {% endif %}
+</body>
+</html>
+"""
+
+ADMIN_BASE_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>{% block title %}Admin Panel{% endblock %} - MovieZone</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
+    <style>{{ css_code|safe }}</style>
+</head>
+<body>
+    <header class="main-nav">
+      <a href="{{ url_for('index') }}" class="logo">MovieZone</a>
+       {% if session.get('logged_in') %}
+        <a href="{{ url_for('admin_logout') }}" class="btn btn-sm btn-outline-light" style="color:white; border-color:white; text-decoration:none;">Logout</a>
+       {% endif %}
+    </header>
+    <main>
+        <div class="admin-container">
+            {% block admin_content %}{% endblock %}
+        </div>
+    </main>
+</body>
+</html>
+"""
+
+ADMIN_LOGIN_TEMPLATE = """
+{% extends "admin_base" %}
+{% block title %}Login{% endblock %}
+{% block admin_content %}
     <h2>Admin Login</h2>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}
@@ -130,14 +161,13 @@ TEMPLATES = {
         <div class="form-group"><label for="password">Password</label><input type="password" name="password" required></div>
         <button type="submit">Login</button>
     </form>
-</div>
 {% endblock %}
-""",
-    "admin_dashboard": """
-{% extends "base" %}
-{% block title %}Admin Dashboard{% endblock %}
-{% block content %}
-<div class="admin-container">
+"""
+
+ADMIN_DASHBOARD_TEMPLATE = """
+{% extends "admin_base" %}
+{% block title %}Dashboard{% endblock %}
+{% block admin_content %}
     <h2>Admin Dashboard</h2>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}{% for category, message in messages %}<div class="flash-msg {{category}}">{{ message }}</div>{% endfor %}{% endif %}
@@ -160,14 +190,13 @@ TEMPLATES = {
             </tbody>
         </table>
     </div>
-</div>
 {% endblock %}
-""",
-    "admin_edit": """
-{% extends "base" %}
+"""
+
+ADMIN_EDIT_TEMPLATE = """
+{% extends "admin_base" %}
 {% block title %}Edit Content{% endblock %}
-{% block content %}
-<div class="admin-container">
+{% block admin_content %}
     <h2>Edit: {{ content.title }}</h2>
     <form method="post" class="admin-form">
         <div class="form-group"><label for="title">Title</label><input type="text" name="title" value="{{ content.title }}" required></div>
@@ -176,10 +205,9 @@ TEMPLATES = {
         <button type="submit">Save Changes</button>
         <a href="{{ url_for('admin_dashboard') }}" class="cancel-link">Cancel</a>
     </form>
-</div>
 {% endblock %}
 """
-}
+
 
 CSS_CODE = """
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
@@ -232,28 +260,22 @@ input[type="text"], input[type="url"], input[type="password"], textarea { width:
 .action-buttons { display: flex; gap: 10px; }
 .action-buttons a { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; }
 .edit-btn { background: #0d6efd; } .delete-btn { background: #dc3545; }
-.type-badge { background-color: #0dcaf0; color: #000; padding: 0.25em 0.5em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; }
+.type-badge { background-color: #0dcaf0; color: #000; padding: 0.25em 0.5em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; text-transform: uppercase; }
 .cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
 @media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
 """
 
-# === Jinja2 এর জন্য সঠিক লোডার এবং রেন্ডারার ===
-class DictLoader(BaseLoader):
-    def __init__(self, templates): self.templates = templates
-    def get_source(self, environment, template):
-        if template in self.templates: return self.templates[template], None, lambda: True
-        raise TemplateNotFound(template)
-
-jinja_env = Environment(loader=DictLoader(TEMPLATES))
-def render_template(template_name, **context):
-    template = jinja_env.get_template(template_name)
-    return render_template_string(template.render(**context), css_code=CSS_CODE, bot_username=BOT_USERNAME)
+# === Jinja2 এর জন্য সঠিক লোডার এবং রেন্ডারার (ফিক্সড) ===
+# Flask এর নিজস্ব render_template_string ব্যবহার করা হচ্ছে, যা কন্টেক্সট হ্যান্ডেল করে
+app.jinja_env.globals['CSS_CODE'] = CSS_CODE
+app.jinja_env.globals['BOT_USERNAME'] = BOT_USERNAME
 
 # --- অ্যাডমিন লগইন ডেকোরেটর ---
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'): return redirect(url_for('admin_login'))
+        if not session.get('logged_in'):
+            return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -287,14 +309,14 @@ def get_tmdb_info(parsed_info):
 def index():
     if content_collection is None: return "Database connection failed.", 500
     all_content = list(content_collection.find().sort('_id', -1))
-    return render_template('index', contents=all_content)
+    return render_template_string(INDEX_TEMPLATE, contents=all_content, css_code=CSS_CODE)
 
 @app.route('/content/<content_id>')
 def content_detail(content_id):
     if content_collection is None: return "Database connection failed.", 500
     try:
         content = content_collection.find_one({'_id': ObjectId(content_id)})
-        if content: return render_template('detail', content=content)
+        if content: return render_template_string(DETAIL_TEMPLATE, content=content, css_code=CSS_CODE, bot_username=BOT_USERNAME)
         else: abort(404)
     except: abort(404)
 
@@ -307,13 +329,18 @@ def admin_login():
             session['logged_in'] = True
             return redirect(url_for('admin_dashboard'))
         else: flash('Invalid credentials. Please try again.', 'error')
-    return render_template('admin_login')
+    
+    # === পরিবর্তন এখানে ===
+    # admin_login.html কে admin_base.html এর সাথে যুক্ত করা হচ্ছে
+    full_template = ADMIN_BASE_TEMPLATE.replace("{% block admin_content %}", ADMIN_LOGIN_TEMPLATE)
+    return render_template_string(full_template, css_code=CSS_CODE)
 
 @app.route('/admin/dashboard')
 @login_required
 def admin_dashboard():
     all_content = list(content_collection.find().sort('_id', -1))
-    return render_template('admin_dashboard', contents=all_content)
+    full_template = ADMIN_BASE_TEMPLATE.replace("{% block admin_content %}", ADMIN_DASHBOARD_TEMPLATE)
+    return render_template_string(full_template, contents=all_content, css_code=CSS_CODE)
 
 @app.route('/admin/edit/<content_id>', methods=['GET', 'POST'])
 @login_required
@@ -324,7 +351,8 @@ def admin_edit(content_id):
         content_collection.update_one({'_id': ObjectId(content_id)}, {'$set': updated_data})
         flash('Content updated successfully!', 'success')
         return redirect(url_for('admin_dashboard'))
-    return render_template('admin_edit', content=content)
+    full_template = ADMIN_BASE_TEMPLATE.replace("{% block admin_content %}", ADMIN_EDIT_TEMPLATE)
+    return render_template_string(full_template, content=content, css_code=CSS_CODE)
 
 @app.route('/admin/delete/<content_id>')
 @login_required
@@ -365,7 +393,8 @@ def telegram_webhook():
                 content_id_str = text.split('_')[1]
                 content = content_collection.find_one({'_id': ObjectId(content_id_str)})
                 if content and 'message_id_in_channel' in content:
-                    requests.get(f"{TELEGRAM_API_URL}/copyMessage?chat_id={chat_id}&from_chat_id={ADMIN_CHANNEL_ID}&message_id={content['message_id_in_channel']}")
+                    payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': content['message_id_in_channel']}
+                    requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
                 else: requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, content not found.")
             except Exception as e:
                 print(f"CRITICAL ERROR: {e}")
