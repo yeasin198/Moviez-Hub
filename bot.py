@@ -37,13 +37,11 @@ except Exception as e:
     print(f"FATAL: Could not connect to MongoDB. Error: {e}")
 
 def load_tmdb_genres():
-    """অ্যাপ্লিকেশন শুরু হওয়ার সময় TMDb থেকে জেনার তালিকা লোড করে।"""
     global TMDB_GENRES
     if not TMDB_API_KEY:
         print("WARNING: TMDB_API_KEY is not set. Cannot load genres.")
         return
     try:
-        # মুভি ও টিভি উভয়ের জেনার লোড করা হচ্ছে
         for genre_type in ['movie', 'tv']:
             url = f"https://api.themoviedb.org/3/genre/{genre_type}/list?api_key={TMDB_API_KEY}"
             res = requests.get(url).json()
@@ -150,6 +148,7 @@ DETAIL_TEMPLATE = """
         .episode-title { font-size: 1rem; }
         .series-status { background-color: var(--netflix-red); color: white; padding: 5px 10px; border-radius: 5px; font-size: 0.9rem; font-weight: bold; margin-left: 15px; vertical-align: middle; }
         .series-episodes-container { max-width: 1200px; margin: -40px auto 60px auto; padding: 0 50px; position: relative; z-index: 5; }
+        .pack-item { background-color: #2a2a2a; border-radius: 5px; margin-bottom: 10px; padding-left: 15px; padding-right: 15px;}
         @media (max-width: 768px) {
             .series-episodes-container { padding: 0 20px; }
             .watch-now-btn { padding: 8px 15px; font-size: 0.9rem; }
@@ -194,11 +193,21 @@ DETAIL_TEMPLATE = """
     {% if content.type == 'tv' %}
         <div class="series-episodes-container">
             <h2 style="margin-bottom:20px;">Seasons & Episodes</h2>
-            {% for season_num, season_data in content.get('seasons', {}).items()|sort %}
+            {% for season_num, season_data in content.get('seasons', {}).items()|sort(attribute=0)|int %}
                 <button class="accordion-button">Season {{ season_num }}</button>
                 <div class="accordion-panel">
                     <ul class="episode-list">
-                        {% for episode_num, episode_data in season_data.get('episodes', {}).items()|sort(attribute=0) %}
+                        {% if season_data.get('complete_pack') %}
+                        <li class="episode-item pack-item">
+                            <span class="episode-title"><i class="fas fa-box-archive"></i> Complete Season {{ season_num }} Pack</span>
+                            <div class="quality-buttons">
+                            {% for quality, msg_id in season_data.get('complete_pack', {}).get('qualities', {}).items()|sort %}
+                                <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}_{{ season_num }}_pack_{{ quality }}" class="watch-now-btn" target="_blank">{{ quality }}</a>
+                            {% endfor %}
+                            </div>
+                        </li>
+                        {% endif %}
+                        {% for episode_num, episode_data in season_data.get('episodes', {}).items()|sort(attribute=0)|int %}
                             <li class="episode-item">
                                 <span class="episode-title">Episode {{ episode_num }}</span>
                                 <div class="quality-buttons">
@@ -272,8 +281,12 @@ ADMIN_TEMPLATE = """
                                     {% if content.type == 'movie' %}
                                         {% for quality in content.qualities.keys()|sort %}<span class="type-badge quality">{{ quality }}</span>{% endfor %}
                                     {% elif content.type == 'tv' %}
-                                        {% for s_num, s_data in content.get('seasons', {}).items() %}S{{s_num}}: {{ s_data.get('episodes', {})|length }} ep(s) <br>{% endfor %}
-                                        {% if content.get('is_complete') %}<span class="type-badge genre">Completed</span>{% endif %}
+                                        {% for s_num, s_data in content.get('seasons', {}).items() %}
+                                            S{{s_num}}: {{ s_data.get('episodes', {})|length }} ep(s)
+                                            {% if s_data.get('complete_pack') %}<span class="type-badge genre">Pack</span>{% endif %}
+                                            <br>
+                                        {% endfor %}
+                                        {% if content.get('is_complete') %}<span class="type-badge complete">Completed</span>{% endif %}
                                     {% endif %}
                                 </td>
                                 <td class="action-buttons">
@@ -368,10 +381,11 @@ input[type="text"], input[type="url"], input[type="password"], textarea { width:
 .content-table th { background: #252525; } .action-buttons { display: flex; gap: 10px; }
 .action-buttons a { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; font-size: 0.9em; }
 .edit-btn { background: #0d6efd; } .delete-btn { background: #dc3545; }
-.type-badge { display: inline-block; margin-bottom: 5px; margin-right: 5px; color: #fff; padding: 0.25em 0.6em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; text-transform: uppercase; }
+.type-badge { display: inline-block; margin: 2px; color: #fff; padding: 0.25em 0.6em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; text-transform: uppercase; }
 .type-badge.type-movie { background-color: #198754; } .type-badge.type-tv { background-color: #fd7e14; }
 .type-badge.quality { background-color: #0dcaf0; color: #000; }
 .type-badge.genre { background-color: #6c757d; }
+.type-badge.complete { background-color: var(--netflix-red); }
 .cancel-link { display: inline-block; margin-top: 10px; color: var(--text-dark); }
 @media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .search-container { padding: 80px 15px 0px 15px; } .hero-section { height: 50vh; padding: 15px; align-items: center; text-align: center; } .hero-content { max-width: 100%; } .hero-title { font-size: 2.5rem; } .hero-description { display: none; } .content-section { padding: 0 15px; margin-right: -15px; margin-left: -15px; } .content-carousel { margin: 0; padding-left: 15px; padding-right: 15px; } .content-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); } .content-carousel .movie-card { flex-basis: calc((100% / 3) - var(--card-gap)); min-width: 110px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; padding: 0 20px; } .detail-info { max-width: 100%; } .detail-title { font-size: 3rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
 """
@@ -396,10 +410,13 @@ def parse_filename(filename):
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
     quality_match = re.search(r'(\d{3,4}p)', cleaned_name, re.IGNORECASE)
     quality = quality_match.group(1).lower() if quality_match else 'HD'
-    base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|axxo|yify).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
+    base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|axxo|yify|pack|complete).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', base_name, re.IGNORECASE)
     if series_match:
         return {'type': 'tv', 'title': series_match.group(1).strip(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3)), 'quality': quality}
+    season_pack_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)', base_name, re.IGNORECASE)
+    if season_pack_match:
+        return {'type': 'tv', 'title': season_pack_match.group(1).strip(), 'season': int(season_pack_match.group(2)), 'episode': None, 'quality': quality}
     movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', base_name, re.IGNORECASE)
     if movie_match:
         return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip(), 'quality': quality}
@@ -421,19 +438,13 @@ def get_tmdb_info(parsed_info):
             genre_ids = data.get('genre_ids', [])
             genres = [TMDB_GENRES.get(gid) for gid in genre_ids if TMDB_GENRES.get(gid)]
             if search_type == 'movie':
-                title = data.get('title')
-                year = data.get('release_date', '')[:4]
-                original_title = data.get('original_title')
+                title, year, original_title = data.get('title'), data.get('release_date', '')[:4], data.get('original_title')
             else:
-                title = data.get('name')
-                year = data.get('first_air_date', '')[:4]
-                original_title = data.get('original_name')
+                title, year, original_title = data.get('name'), data.get('first_air_date', '')[:4], data.get('original_name')
             return {
                 'type': search_type, 'title': title, 'original_title': original_title,
-                'description': data.get('overview'),
-                'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None,
-                'release_year': year, 'rating': round(data.get('vote_average', 0), 1),
-                'genres': genres[:3]
+                'description': data.get('overview'), 'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None,
+                'release_year': year, 'rating': round(data.get('vote_average', 0), 1), 'genres': genres[:3]
             }
     except requests.exceptions.RequestException as e:
         print(f"Error fetching TMDb info for '{parsed_info['title']}': {e}")
@@ -448,7 +459,7 @@ def index():
     if content_collection is None: return "Database connection failed.", 500
     search_query = request.args.get('q', '').strip()
     if search_query:
-        query = {'title': {'$regex': search_query, '$options': 'i'}}
+        query = {'$or': [{'title': {'$regex': search_query, '$options': 'i'}}, {'genres': {'$regex': search_query, '$options': 'i'}}]}
         search_results = list(content_collection.find(query).sort('_id', -1))
         return render_template_string(INDEX_TEMPLATE, is_search=True, contents=search_results, css_code=CSS_CODE, search_query=search_query)
     else:
@@ -470,6 +481,7 @@ def content_detail(content_id):
         else: abort(404)
     except: abort(404)
 
+# --- Admin Routes ---
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_login():
     if session.get('logged_in'): return redirect(url_for('admin_dashboard'))
@@ -505,6 +517,7 @@ def admin_delete(content_id):
 def admin_logout():
     session.pop('logged_in', None); flash('You have been logged out.', 'success'); return redirect(url_for('admin_login'))
 
+# --- Webhook Route ---
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     if content_collection is None: return jsonify(status='error', message='Database not connected'), 500
@@ -516,12 +529,10 @@ def telegram_webhook():
             file = post.get('video') or post.get('document')
             caption = post.get('caption', '').lower()
             if not (file and file.get('file_name')): return jsonify(status='ok')
-
+            
             parsed_info = parse_filename(file['file_name'])
             tmdb_data = get_tmdb_info(parsed_info)
-            if not tmdb_data:
-                print(f"WARNING: Could not get TMDb info for {file['file_name']}")
-                return jsonify(status='ok')
+            if not tmdb_data: return jsonify(status='ok')
 
             if tmdb_data['type'] == 'movie':
                 search_key = {'original_title': tmdb_data['original_title'], 'type': 'movie'}
@@ -536,18 +547,33 @@ def telegram_webhook():
                     print(f"SUCCESS: New movie '{tmdb_data['title']}' saved.")
             elif tmdb_data['type'] == 'tv':
                 search_key = {'original_title': tmdb_data['original_title'], 'type': 'tv'}
-                s, e, q = str(parsed_info['season']), str(parsed_info['episode']), parsed_info['quality']
+                s, q = str(parsed_info['season']), parsed_info['quality']
                 existing = content_collection.find_one(search_key)
+                update_operation = {}
+                
+                if parsed_info.get('episode') is None: # Season Pack
+                    update_path = f"seasons.{s}.complete_pack.qualities.{q}"
+                    print_msg = f"SUCCESS: Added Complete Season {s} pack for '{tmdb_data['title']}'"
+                else: # Single Episode
+                    e = str(parsed_info['episode'])
+                    update_path = f"seasons.{s}.episodes.{e}.qualities.{q}"
+                    print_msg = f"SUCCESS: Updated S{s}E{e} for '{tmdb_data['title']}'"
+
+                update_operation['$set'] = {update_path: post['message_id']}
+                if '[complete]' in caption: update_operation['$set']['is_complete'] = True
+
                 if existing:
-                    update = {'$set': {f"seasons.{s}.episodes.{e}.qualities.{q}": post['message_id']}}
-                    if '[complete]' in caption: update['$set']['is_complete'] = True
-                    content_collection.update_one({'_id': existing['_id']}, update)
-                    print(f"SUCCESS: Updated S{s}E{e} for '{existing['title']}'")
+                    content_collection.update_one({'_id': existing['_id']}, update_operation)
+                    print(print_msg)
                 else:
-                    tmdb_data['seasons'] = {s: {"episodes": {e: {"qualities": {q: post['message_id']}}}}}
+                    if parsed_info.get('episode') is None:
+                        tmdb_data['seasons'] = {s: {"complete_pack": {"qualities": {q: post['message_id']}}}}
+                    else:
+                        e = str(parsed_info['episode'])
+                        tmdb_data['seasons'] = {s: {"episodes": {e: {"qualities": {q: post['message_id']}}}}}
                     tmdb_data['is_complete'] = '[complete]' in caption
                     content_collection.insert_one(tmdb_data)
-                    print(f"SUCCESS: New series '{tmdb_data['title']}' with S{s}E{e} saved.")
+                    print(f"SUCCESS: New series '{tmdb_data['title']}' saved.")
 
     elif 'message' in data:
         message = data['message']
@@ -559,9 +585,12 @@ def telegram_webhook():
                 if not content: return requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Content not found.")
                 
                 message_id = None
-                if len(parts) == 3: # Movie: get_id_quality
+                if len(parts) == 3: # Movie
                     message_id = content.get('qualities', {}).get(parts[2])
-                elif len(parts) == 5: # Series: get_id_s_e_q
+                elif len(parts) == 5 and parts[3] == 'pack': # Season Pack
+                    s, q = parts[2], parts[4]
+                    message_id = content.get('seasons',{}).get(s,{}).get('complete_pack',{}).get('qualities',{}).get(q)
+                elif len(parts) == 5: # Episode
                     s, e, q = parts[2], parts[3], parts[4]
                     message_id = content.get('seasons',{}).get(s,{}).get('episodes',{}).get(e,{}).get('qualities',{}).get(q)
                 
