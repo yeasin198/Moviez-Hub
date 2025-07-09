@@ -13,13 +13,12 @@ MONGO_URI = "mongodb+srv://mesohas358:mesohas358@cluster0.6kxy1vc.mongodb.net/mo
 BOT_TOKEN = "7931162174:AAGK8aSdqoYpZ4bsSXp36dp6zbVnYeenowA"
 TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
 ADMIN_CHANNEL_ID = "-1002853936940"
-BOT_USERNAME = "CTGVideoPlayerBot"
+BOT_USERNAME = "Mtest100bot"
 ADMIN_USER = "Nahid270"
 ADMIN_PASS = "Nahid270"
 # ======================================================================
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
@@ -94,7 +93,16 @@ DETAIL_TEMPLATE = """
             {% if content.rating %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>{% endif %}
           </div>
           <p class="detail-overview">{{ content.description }}</p>
-          <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}" class="watch-now-btn" target="_blank"><i class="fas fa-robot"></i> Get from Bot</a>
+          <!-- === পরিবর্তন এখানে: কোয়ালিটি অনুযায়ী বাটন === -->
+          <h5 class="mb-3">Get from Bot</h5>
+          <div class="quality-buttons">
+            {% for quality, msg_id in content.qualities.items() %}
+                <a href="https://t.me/{{ bot_username }}?start=get_{{ content._id }}_{{ quality }}" class="watch-now-btn" target="_blank">
+                    <i class="fas fa-robot"></i> Get {{ quality }}
+                </a>
+            {% endfor %}
+          </div>
+          <p class="text-muted small mt-3">এই লিঙ্কে ক্লিক করলে আপনাকে সরাসরি টেলিগ্রাম বটে নিয়ে যাওয়া হবে এবং ফাইলটি পাঠিয়ে দেওয়া হবে।</p>
         </div>
       </div>
     </div>
@@ -140,13 +148,17 @@ ADMIN_TEMPLATE = """
                 {% endwith %}
                 <div class="table-responsive">
                     <table class="content-table">
-                        <thead><tr><th>Poster</th><th>Title</th><th>Type</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Poster</th><th>Title</th><th>Qualities</th><th>Actions</th></tr></thead>
                         <tbody>
                             {% for content in contents %}
                             <tr>
                                 <td><img src="{{ content.poster_url or 'https://via.placeholder.com/50x75' }}" alt="poster" width="40"></td>
                                 <td>{{ content.title }}</td>
-                                <td><span class="type-badge">{{ content.type }}</span></td>
+                                <td>
+                                    {% for quality in content.qualities.keys() %}
+                                        <span class="type-badge">{{ quality }}</span>
+                                    {% endfor %}
+                                </td>
                                 <td class="action-buttons">
                                     <a href="{{ url_for('admin_edit', content_id=content._id) }}" class="edit-btn">Edit</a>
                                     <a href="{{ url_for('admin_delete', content_id=content._id) }}" class="delete-btn" onclick="return confirm('Are you sure?');">Delete</a>
@@ -207,7 +219,8 @@ a { text-decoration: none; color: inherit; }
 .detail-meta { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 25px; font-size: 1rem; color: var(--text-dark); }
 .detail-meta span { font-weight: 700; color: var(--text-light); }
 .detail-overview { font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
-.watch-now-btn { background-color: var(--netflix-red); color: white; padding: 15px 30px; font-size: 1.2rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; margin-bottom: 25px; transition: transform 0.2s ease, background-color 0.2s ease; }
+.quality-buttons a.watch-now-btn { display: inline-block; margin-right: 10px; margin-bottom: 10px; }
+.watch-now-btn { background-color: var(--netflix-red); color: white; padding: 12px 25px; font-size: 1rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; transition: transform 0.2s ease, background-color 0.2s ease; }
 .watch-now-btn:hover { transform: scale(1.05); background-color: #f61f29; }
 .admin-container { padding: 100px 20px 40px; max-width: 800px; margin: 0 auto; }
 .admin-form { background: #222; padding: 25px; border-radius: 8px; }
@@ -215,12 +228,10 @@ a { text-decoration: none; color: inherit; }
 input[type="text"], input[type="url"], input[type="password"], textarea { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid #333; font-size: 1rem; background: #333; color: var(--text-light); }
 .admin-form button { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; width: 100%; }
 .flash-msg { padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
-.flash-msg.success { background-color: #1f4e2c; color: #d4edda; }
-.flash-msg.error { background-color: #721c24; color: #f8d7da; }
+.flash-msg.success { background-color: #1f4e2c; color: #d4edda; } .flash-msg.error { background-color: #721c24; color: #f8d7da; }
 .table-responsive { overflow-x: auto; } .content-table { width: 100%; border-collapse: collapse; }
 .content-table th, .content-table td { padding: 12px; text-align: left; border-bottom: 1px solid #333; white-space: nowrap; }
-.content-table th { background: #252525; }
-.action-buttons { display: flex; gap: 10px; }
+.content-table th { background: #252525; } .action-buttons { display: flex; gap: 10px; }
 .action-buttons a { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; }
 .edit-btn { background: #0d6efd; } .delete-btn { background: #dc3545; }
 .type-badge { background-color: #0dcaf0; color: #000; padding: 0.25em 0.5em; border-radius: 0.25rem; font-size: .8em; font-weight: 700; text-transform: uppercase; }
@@ -228,21 +239,32 @@ input[type="text"], input[type="url"], input[type="password"], textarea { width:
 @media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; } .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } .detail-poster { width: 60%; max-width: 220px; height: auto; } }
 """
 
-# --- অ্যাডমিন লগইন ডেকোরেটর ---
+# === Flask অ্যাপ্লিকেশনের ফাংশন এবং রাউট (মাল্টি-কোয়ালিটি সহ) ===
+
+@app.context_processor
+def inject_global_vars():
+    return dict(bot_username=BOT_USERNAME)
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'):
-            return redirect(url_for('admin_login'))
+        if not session.get('logged_in'): return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated_function
 
 def parse_filename(filename):
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
+    quality_match = re.search(r'(\d{3,4}p)', cleaned_name, re.IGNORECASE)
+    quality = quality_match.group(1) if quality_match else 'HD'
+    
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', cleaned_name, re.IGNORECASE)
-    if series_match: return {'type': 'tv', 'title': series_match.group(1).strip(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3))}
+    if series_match:
+        return {'type': 'tv', 'title': series_match.group(1).strip(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3)), 'quality': quality}
+    
     movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', cleaned_name, re.IGNORECASE)
-    if movie_match: return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip()}
+    if movie_match:
+        return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip(), 'quality': quality}
+        
     return None
 
 def get_tmdb_info(parsed_info):
@@ -251,18 +273,16 @@ def get_tmdb_info(parsed_info):
     if parsed_info['type'] == 'movie': params['primary_release_year'] = parsed_info.get('year')
     try:
         r = requests.get(api_url, params=params)
-        r.raise_for_status()
-        res = r.json()
+        r.raise_for_status(); res = r.json()
         if res.get('results'):
             data = res['results'][0]
             if parsed_info['type'] == 'movie': title, year = data.get('title'), data.get('release_date', '')[:4]
             else: title, year = f"{data.get('name')} S{parsed_info['season']:02d}E{parsed_info['episode']:02d}", data.get('first_air_date', '')[:4]
             poster = data.get('poster_path')
-            return {'type': parsed_info['type'],'title': title,'description': data.get('overview'),'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None,'release_year': year,'rating': round(data.get('vote_average', 0), 1)}
+            return {'type': parsed_info['type'], 'title': title, 'original_title': data.get('original_title') or data.get('original_name'), 'description': data.get('overview'), 'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None, 'release_year': year, 'rating': round(data.get('vote_average', 0), 1)}
     except requests.exceptions.RequestException as e: print(f"Error fetching TMDb info: {e}")
     return None
 
-# --- সাধারণ ব্যবহারকারীর রাউট ---
 @app.route('/')
 def index():
     if content_collection is None: return "Database connection failed.", 500
@@ -274,19 +294,17 @@ def content_detail(content_id):
     if content_collection is None: return "Database connection failed.", 500
     try:
         content = content_collection.find_one({'_id': ObjectId(content_id)})
-        if content: return render_template_string(DETAIL_TEMPLATE, content=content, css_code=CSS_CODE, bot_username=BOT_USERNAME)
+        if content: return render_template_string(DETAIL_TEMPLATE, content=content, css_code=CSS_CODE)
         else: abort(404)
     except: abort(404)
 
-# --- অ্যাডমিন প্যানেলের রাউট ---
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_login():
     if session.get('logged_in'): return redirect(url_for('admin_dashboard'))
     if request.method == 'POST':
         if request.form['username'] == ADMIN_USER and request.form['password'] == ADMIN_PASS:
-            session['logged_in'] = True
-            return redirect(url_for('admin_dashboard'))
-        else: flash('Invalid credentials. Please try again.', 'error')
+            session['logged_in'] = True; return redirect(url_for('admin_dashboard'))
+        else: flash('Invalid credentials.', 'error')
     return render_template_string(ADMIN_TEMPLATE, page_type='login', css_code=CSS_CODE)
 
 @app.route('/admin/dashboard')
@@ -300,28 +318,23 @@ def admin_dashboard():
 def admin_edit(content_id):
     content = content_collection.find_one({'_id': ObjectId(content_id)})
     if request.method == 'POST':
-        updated_data = {'title': request.form['title'],'description': request.form['description'],'poster_url': request.form['poster_url']}
+        updated_data = {'title': request.form['title'], 'description': request.form['description'], 'poster_url': request.form['poster_url']}
         content_collection.update_one({'_id': ObjectId(content_id)}, {'$set': updated_data})
-        flash('Content updated successfully!', 'success')
-        return redirect(url_for('admin_dashboard'))
+        flash('Content updated successfully!', 'success'); return redirect(url_for('admin_dashboard'))
     return render_template_string(ADMIN_TEMPLATE, page_type='edit', content=content, css_code=CSS_CODE)
 
 @app.route('/admin/delete/<content_id>')
 @login_required
 def admin_delete(content_id):
     content_collection.delete_one({'_id': ObjectId(content_id)})
-    flash('Content deleted successfully!', 'success')
-    return redirect(url_for('admin_dashboard'))
+    flash('Content deleted successfully!', 'success'); return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/logout')
 def admin_logout():
-    session.pop('logged_in', None)
-    return redirect(url_for('admin_login'))
+    session.pop('logged_in', None); return redirect(url_for('admin_login'))
 
-# --- টেলিগ্রাম ওয়েবহুক ---
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
-    # ... (এই ফাংশনটি আগের মতোই থাকবে, কোনো পরিবর্তন নেই)
     data = request.get_json()
     if 'channel_post' in data:
         post = data['channel_post']
@@ -330,28 +343,42 @@ def telegram_webhook():
             if file and content_collection is not None:
                 parsed_info = parse_filename(file.get('file_name', ''))
                 if parsed_info:
-                    tmdb_data = get_tmdb_info(parsed_info)
-                    if tmdb_data:
-                        tmdb_data['message_id_in_channel'] = post['message_id']
-                        content_collection.insert_one(tmdb_data)
-                        print(f"SUCCESS: Content '{tmdb_data['title']}' info saved.")
+                    existing_content = content_collection.find_one({'original_title': parsed_info['title']})
+                    if existing_content:
+                        # --- কন্টেন্ট আপডেট করার লজিক ---
+                        quality_key = f"qualities.{parsed_info['quality']}"
+                        content_collection.update_one(
+                            {'_id': existing_content['_id']},
+                            {'$set': {quality_key: post['message_id']}}
+                        )
+                        print(f"SUCCESS: Updated quality '{parsed_info['quality']}' for '{existing_content['title']}'")
+                    else:
+                        # --- নতুন কন্টেন্ট যোগ করার লজিক ---
+                        tmdb_data = get_tmdb_info(parsed_info)
+                        if tmdb_data:
+                            tmdb_data['qualities'] = {parsed_info['quality']: post['message_id']}
+                            content_collection.insert_one(tmdb_data)
+                            print(f"SUCCESS: New content '{tmdb_data['title']}' saved.")
+    
     elif 'message' in data:
         message = data['message']
-        chat_id = message['chat']['id']
-        text = message.get('text', '')
+        chat_id, text = message['chat']['id'], message.get('text', '')
         if text == '/start':
-            requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Welcome! Please browse our website.")
+            requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Welcome! Browse our website.")
         elif text.startswith('/start get_'):
             try:
-                content_id_str = text.split('_')[1]
+                parts = text.split('_') # যেমন: ['/start', 'get', 'mongo_id', '720p']
+                content_id_str, quality = parts[1], parts[2]
                 content = content_collection.find_one({'_id': ObjectId(content_id_str)})
-                if content and 'message_id_in_channel' in content:
-                    payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': content['message_id_in_channel']}
+                if content and quality in content.get('qualities', {}):
+                    message_id = content['qualities'][quality]
+                    payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id}
                     requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
-                else: requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, content not found.")
+                else: requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, content or quality not found.")
             except Exception as e:
                 print(f"CRITICAL ERROR: {e}")
                 requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=An unexpected error occurred.")
+                
     return jsonify(status='ok')
 
 if __name__ == '__main__':
