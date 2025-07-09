@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import requests
 from flask import Flask, render_template_string, request, redirect, url_for, Response, jsonify
@@ -9,15 +10,31 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # ======================================================================
-# --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য ---
+# --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য (এনভায়রনমেন্ট থেকে লোড হবে) ---
+# এই ভেরিয়েবলগুলো আপনার হোস্টিং এনভায়রনমেন্টে সেট করতে হবে।
+# যেমন: Heroku > Settings > Config Vars অথবা Vercel > Project > Settings > Environment Variables
 # ======================================================================
-MONGO_URI = "mongodb+srv://mesohas358:mesohas358@cluster0.6kxy1vc.mongodb.net/movie_db?retryWrites=true&w=majority&appName=Cluster0"
-BOT_TOKEN = "7931162174:AAGK8aSdqoYpZ4bsSXp36dp6zbVnYeenowA"
-TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
-ADMIN_CHANNEL_ID = "-1002853936940"
-BOT_USERNAME = "CTGVideoPlayerBot"
-ADMIN_USERNAME = "Nahid270"
-ADMIN_PASSWORD = "Nahid270"
+MONGO_URI = os.environ.get("MONGO_URI")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
+ADMIN_CHANNEL_ID = os.environ.get("ADMIN_CHANNEL_ID")
+BOT_USERNAME = os.environ.get("BOT_USERNAME")
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+
+# --- প্রয়োজনীয় ভেরিয়েবলগুলো সেট করা হয়েছে কিনা তা পরীক্ষা করা ---
+required_vars = {
+    "MONGO_URI": MONGO_URI, "BOT_TOKEN": BOT_TOKEN, "TMDB_API_KEY": TMDB_API_KEY,
+    "ADMIN_CHANNEL_ID": ADMIN_CHANNEL_ID, "BOT_USERNAME": BOT_USERNAME,
+    "ADMIN_USERNAME": ADMIN_USERNAME, "ADMIN_PASSWORD": ADMIN_PASSWORD,
+}
+
+missing_vars = [name for name, value in required_vars.items() if not value]
+if missing_vars:
+    print(f"FATAL: Missing required environment variables: {', '.join(missing_vars)}")
+    print("Please set these variables in your deployment environment and restart the application.")
+    sys.exit(1)
+
 # ======================================================================
 
 # --- অ্যাপ্লিকেশন সেটআপ ---
@@ -50,7 +67,7 @@ try:
     print("SUCCESS: Successfully connected to MongoDB!")
 except Exception as e:
     print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
-    exit(1)
+    sys.exit(1)
 
 # --- Context Processor: বিজ্ঞাপনের কোড সহজলভ্য করার জন্য ---
 @app.context_processor
