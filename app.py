@@ -5,21 +5,27 @@ from flask import Flask, request, jsonify, render_template, abort
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
+# ======================================================================
 # --- আপনার ব্যক্তিগত তথ্য সরাসরি এখানে বসানো হয়েছে ---
+# --- আপনাকে এখানে কিছুই পরিবর্তন করতে হবে না ---
+# ======================================================================
 MONGO_URI = "mongodb+srv://mesohas358:mesohas358@cluster0.6kxy1vc.mongodb.net/movie_database?retryWrites=true&w=majority&appName=Cluster0"
 BOT_TOKEN = "7931162174:AAGK8aSdqoYpZ4bsSXp36dp6zbVnYeenowA"
 TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
 ADMIN_CHANNEL_ID = "-1002853936940"
+# ======================================================================
+
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # --- অ্যাপ এবং ডাটাবেস সংযোগ ---
 app = Flask(__name__)
 try:
+    print("Trying to connect to MongoDB...")
     client = MongoClient(MONGO_URI)
     db = client.get_database() 
     movies_collection = db.movies
     client.admin.command('ping') # সংযোগ পরীক্ষা করার জন্য
-    print("MongoDB Connected Successfully!")
+    print("SUCCESS: MongoDB Connected Successfully!")
 except Exception as e:
     print(f"FATAL: Could not connect to MongoDB. Error: {e}")
     movies_collection = None
@@ -28,7 +34,7 @@ except Exception as e:
 def parse_movie_name(filename):
     """ফাইলের নাম থেকে মুভির নাম এবং সাল বের করে।"""
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
-    match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', cleaned_name)
+    match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', cleaned_name, re.IGNORECASE)
     if match:
         title = match.group(1).strip()
         year = match.group(2).strip()
@@ -74,7 +80,7 @@ def get_telegram_file_link(file_id):
 # --- Flask রাউট ---
 @app.route('/')
 def index():
-    if not movies_collection: return "Database connection failed. Please check your MongoDB URI.", 500
+    if not movies_collection: return "Database connection failed. Please check your MongoDB URI and network access.", 500
     all_movies = list(movies_collection.find().sort('_id', -1))
     return render_template('index.html', movies=all_movies)
 
@@ -90,6 +96,7 @@ def movie_detail(movie_id):
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
+    print("Webhook received...")
     if not movies_collection:
         print("Webhook skipped: Database not connected.")
         return jsonify(status='failed', reason='db_connection_error')
@@ -100,6 +107,7 @@ def telegram_webhook():
         chat_id = str(post['chat']['id'])
         
         if chat_id == ADMIN_CHANNEL_ID and ('video' in post or 'document' in post):
+            print("Post from admin channel received.")
             file_info = post.get('video') or post.get('document')
             if not file_info: return jsonify(status='ok')
 
@@ -111,6 +119,7 @@ def telegram_webhook():
                 print(f"ERROR: Could not parse title/year from '{file_name}'")
                 return jsonify(status='failed', reason='parsing_error')
 
+            print(f"Parsed movie: {title} ({year})")
             movie_info = get_tmdb_info(title, year)
             if not movie_info:
                 print(f"ERROR: TMDb info not found for '{title} ({year})'")
@@ -134,7 +143,7 @@ def telegram_webhook():
     
     return jsonify(status='ok')
 
+# Render.com এর জন্য প্রয়োজনীয় কনফিগারেশন
 if __name__ == '__main__':
-    # Render.com এর জন্য প্রয়োজনীয় কনফিগারেশন
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
