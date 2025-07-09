@@ -15,8 +15,6 @@ TMDB_API_KEY = "7dc544d9253bccc3cfecc1c677f69819"
 ADMIN_CHANNEL_ID = "-1002853936940"
 # ======================================================================
 
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
 # --- অ্যাপ এবং ডাটাবেস সংযোগ ---
 app = Flask(__name__)
 try:
@@ -29,8 +27,7 @@ except Exception as e:
     print(f"FATAL: Could not connect to MongoDB. Error: {e}")
     movies_collection = None
 
-# --- HTML এবং CSS টেমপ্লেটগুলো সরাসরি পাইথন স্ট্রিং-এ রাখা হলো ---
-
+# --- HTML এবং CSS টেমপ্লেটগুলো ---
 TEMPLATES = {
     "base": """
 <!doctype html>
@@ -49,19 +46,11 @@ TEMPLATES = {
 <body>
     <header class="sticky-top">
         <nav class="navbar navbar-expand-lg main-nav">
-            <div class="container">
-                <a class="navbar-brand" href="/">
-                    <i class="fa-solid fa-film"></i> অটো বাংলা মুভি
-                </a>
-            </div>
+            <div class="container"> <a class="navbar-brand" href="/"><i class="fa-solid fa-film"></i> অটো বাংলা মুভি</a> </div>
         </nav>
     </header>
-    <main class="container my-5">
-        {% block content %}{% endblock %}
-    </main>
-    <footer class="text-center py-4 mt-auto">
-        <p class="text-white-50">© 2024 All Rights Reserved.</p>
-    </footer>
+    <main class="container my-5"> {% block content %}{% endblock %} </main>
+    <footer class="text-center py-4 mt-auto"> <p class="text-white-50">© 2024 All Rights Reserved.</p> </footer>
 </body>
 </html>
 """,
@@ -69,9 +58,7 @@ TEMPLATES = {
 {% extends "base" %}
 {% block title %}সকল মুভি{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="section-title">সর্বশেষ আপলোড</h2>
-</div>
+<div class="d-flex justify-content-between align-items-center mb-4"> <h2 class="section-title">সর্বশেষ আপলোড</h2> </div>
 <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-4">
     {% for movie in movies %}
     <div class="col">
@@ -91,10 +78,7 @@ TEMPLATES = {
         </a>
     </div>
     {% else %}
-    <div class="col-12 text-center py-5">
-        <h4 class="text-white-50">এখনও কোনো মুভি আপলোড করা হয়নি।</h4>
-        <p class="text-white-50">আপনার টেলিগ্রাম চ্যানেলে ফাইল আপলোড করুন।</p>
-    </div>
+    <div class="col-12 text-center py-5"> <h4 class="text-white-50">এখনও কোনো মুভি আপলোড করা হয়নি।</h4> <p class="text-white-50">আপনার টেলিগ্রাম চ্যানেলে ফাইল আপলোড করুন।</p> </div>
     {% endfor %}
 </div>
 {% endblock %}
@@ -119,14 +103,11 @@ TEMPLATES = {
                 <p class="card-text text-white-50">{{ movie.description or 'No description available.' }}</p>
                 <div class="mt-5">
                     <h5 class="mb-3">ডাউনলোড লিঙ্ক</h5>
-                    <a href="{{ movie.download_url }}" class="btn btn-primary btn-lg me-2" target="_blank">
-                        <i class="fa-solid fa-play me-2"></i> অনলাইনে দেখুন
-                    </a>
-                    <a href="{{ movie.download_url }}" class="btn btn-success btn-lg" target="_blank">
+                    <a href="{{ movie.download_url }}" class="btn btn-primary btn-lg" target="_blank">
                         <i class="fa-solid fa-download me-2"></i> ডাউনলোড করুন
                     </a>
                 </div>
-                <p class="text-muted small mt-3">বিশেষ দ্রষ্টব্য: টেলিগ্রামের ডাউনলোড লিঙ্কগুলো সাময়িক এবং কিছু সময় পর কাজ নাও করতে পারে।</p>
+                <p class="text-muted small mt-3">এই লিঙ্কে ক্লিক করলে আপনাকে সরাসরি টেলিগ্রাম পোস্টে নিয়ে যাওয়া হবে।</p>
             </div>
         </div>
     </div>
@@ -136,53 +117,31 @@ TEMPLATES = {
 }
 
 CSS_CODE = """
-:root {
-    --primary-color: #e50914; --background-color: #141414; --card-background: #1f1f1f;
-    --text-color: #ffffff; --font-family: 'Hind Siliguri', sans-serif;
-}
-body {
-    background-color: var(--background-color) !important; color: var(--text-color) !important;
-    font-family: var(--font-family); display: flex; flex-direction: column; min-height: 100vh;
-}
+:root { --primary-color: #e50914; --background-color: #141414; --card-background: #1f1f1f; --text-color: #ffffff; --font-family: 'Hind Siliguri', sans-serif; }
+body { background-color: var(--background-color) !important; color: var(--text-color) !important; font-family: var(--font-family); display: flex; flex-direction: column; min-height: 100vh; }
 .main-nav { background-color: rgba(20, 20, 20, 0.85); backdrop-filter: blur(10px); border-bottom: 1px solid #222; }
 .navbar-brand { font-weight: 700; color: var(--primary-color) !important; font-size: 1.5rem; }
 .section-title { font-weight: 600; border-left: 4px solid var(--primary-color); padding-left: 15px; }
-.movie-card {
-    position: relative; overflow: hidden; border-radius: 8px; background-color: var(--card-background);
-    transition: transform 0.3s ease, box-shadow 0.3s ease; cursor: pointer; border: 1px solid #2a2a2a;
-}
+.movie-card { position: relative; overflow: hidden; border-radius: 8px; background-color: var(--card-background); transition: transform 0.3s ease, box-shadow 0.3s ease; cursor: pointer; border: 1px solid #2a2a2a; }
 .movie-card:hover { transform: scale(1.05); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
 .movie-poster { width: 100%; height: auto; aspect-ratio: 2/3; object-fit: cover; display: block; }
-.movie-overlay {
-    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 50%);
-    display: flex; align-items: flex-end; opacity: 0; transition: opacity 0.3s ease;
-}
+.movie-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 50%); display: flex; align-items: flex-end; opacity: 0; transition: opacity 0.3s ease; }
 .movie-card:hover .movie-overlay { opacity: 1; }
 .movie-info { padding: 1rem; width: 100%; }
-.movie-title {
-    font-size: 1rem; font-weight: 600; color: var(--text-color); margin-bottom: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+.movie-title { font-size: 1rem; font-weight: 600; color: var(--text-color); margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .movie-detail-poster { max-width: 350px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7); }
 .movie-detail-card .display-5 { font-weight: 700; }
 .btn-primary { background-color: var(--primary-color); border-color: var(--primary-color); }
 .btn-primary:hover { background-color: #c40812; border-color: #c40812; }
 """
 
-# === Jinja2 এর জন্য সঠিক লোডার ===
 class DictLoader(BaseLoader):
-    def __init__(self, templates):
-        self.templates = templates
-
+    def __init__(self, templates): self.templates = templates
     def get_source(self, environment, template):
-        if template in self.templates:
-            source = self.templates[template]
-            return source, None, lambda: True
+        if template in self.templates: return self.templates[template], None, lambda: True
         raise TemplateNotFound(template)
 
 jinja_env = Environment(loader=DictLoader(TEMPLATES))
-
 def render_template(template_name, **context):
     template = jinja_env.get_template(template_name)
     return template.render(css_code=CSS_CODE, **context)
@@ -212,15 +171,6 @@ def get_tmdb_info(title, year):
     except requests.exceptions.RequestException as e: print(f"Error: {e}")
     return None
 
-def get_telegram_file_link(file_id):
-    try:
-        r = requests.get(f"{TELEGRAM_API_URL}/getFile?file_id={file_id}")
-        r.raise_for_status()
-        res = r.json()
-        if res.get('ok'): return f"https://api.telegram.org/file/bot{BOT_TOKEN}/{res['result']['file_path']}"
-    except requests.exceptions.RequestException as e: print(f"Error: {e}")
-    return None
-
 # --- Flask রাউট ---
 @app.route('/')
 def index():
@@ -233,8 +183,7 @@ def movie_detail(movie_id):
     if movies_collection is None: return "Database connection failed.", 500
     try:
         movie = movies_collection.find_one({'_id': ObjectId(movie_id)})
-        if movie:
-            return render_template('detail', movie=movie)
+        if movie: return render_template('detail', movie=movie)
         else: abort(404)
     except: abort(404)
 
@@ -244,16 +193,28 @@ def telegram_webhook():
     data = request.get_json()
     if 'channel_post' in data:
         post = data['channel_post']
-        if str(post['chat']['id']) == ADMIN_CHANNEL_ID and ('video' in post or 'document' in post):
+        chat_id = str(post['chat']['id'])
+        if chat_id == ADMIN_CHANNEL_ID and ('video' in post or 'document' in post):
             file = post.get('video') or post.get('document')
             title, year = parse_movie_name(file.get('file_name', ''))
             if title and year:
                 info = get_tmdb_info(title, year)
-                link = get_telegram_file_link(file['file_id'])
-                if info and link:
-                    info['download_url'] = link
+                if info:
+                    # === পরিবর্তন এখানে: সরাসরি পোস্টের লিঙ্ক তৈরি করা হচ্ছে ===
+                    channel_username_or_id = chat_id.replace("-100", "") # পাবলিক চ্যানেলের জন্য username, প্রাইভেটের জন্য chat_id
+                    message_id = post['message_id']
+                    # নোট: যদি আপনার চ্যানেল প্রাইভেট হয়, এই লিঙ্ক কাজ নাও করতে পারে। সেক্ষেত্রে চ্যানেলটিকে পাবলিক করতে হবে।
+                    # যদি চ্যানেল পাবলিক করতে না চান, তাহলে অন্য সমাধান লাগবে।
+                    # আপাতত ধরে নিচ্ছি চ্যানেল পাবলিক করা সম্ভব। চ্যানেলের একটি ইউজারনেম সেট করুন।
+                    # যেমন, @my_movie_channel. তাহলে নিচের লাইনে channel_username_or_id এর জায়গায় 'my_movie_channel' বসাতে হবে।
+                    
+                    # চ্যানেল প্রাইভেট হলে এই লিঙ্ক কাজ করবে না। একটি PUBLIC CHANNEL USERNAME দিন, যেমন 'your_channel_name'
+                    # আমি আপাতত একটি placeholder দিচ্ছি, আপনাকে এটি পরিবর্তন করতে হতে পারে।
+                    # আপনার চ্যানেলের একটি ইউজারনেম দিন (যেমন @my_movies), তারপর নিচের লাইনে 'c' এর বদলে সেই ইউজারনেম লিখুন।
+                    info['download_url'] = f"https://t.me/c/{channel_username_or_id}/{message_id}"
+                    
                     movies_collection.insert_one(info)
-                    print(f"SUCCESS: Movie '{info['title']}' added.")
+                    print(f"SUCCESS: Movie '{info['title']}' added. Link: {info['download_url']}")
     return jsonify(status='ok')
 
 if __name__ == '__main__':
