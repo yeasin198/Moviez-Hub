@@ -80,13 +80,17 @@ def get_telegram_file_link(file_id):
 # --- Flask রাউট ---
 @app.route('/')
 def index():
-    if not movies_collection: return "Database connection failed. Please check your MongoDB URI and network access.", 500
+    # === পরিবর্তন এখানে ===
+    if movies_collection is None: 
+        return "Database connection failed. Please check your MongoDB URI and network access.", 500
     all_movies = list(movies_collection.find().sort('_id', -1))
     return render_template('index.html', movies=all_movies)
 
 @app.route('/movie/<movie_id>')
 def movie_detail(movie_id):
-    if not movies_collection: return "Database connection failed.", 500
+    # === পরিবর্তন এখানে ===
+    if movies_collection is None: 
+        return "Database connection failed.", 500
     try:
         movie = movies_collection.find_one({'_id': ObjectId(movie_id)})
         if movie: return render_template('movie_detail.html', movie=movie)
@@ -97,7 +101,8 @@ def movie_detail(movie_id):
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     print("Webhook received...")
-    if not movies_collection:
+    # === পরিবর্তন এখানে ===
+    if movies_collection is None:
         print("Webhook skipped: Database not connected.")
         return jsonify(status='failed', reason='db_connection_error')
 
