@@ -279,17 +279,30 @@ def parse_filename(filename):
 def get_tmdb_info(parsed_info):
     api_url = f"https://api.themoviedb.org/3/search/{parsed_info['type']}"
     params = {'api_key': TMDB_API_KEY, 'query': parsed_info['title']}
-    if parsed_info['type'] == 'movie': params['primary_release_year'] = parsed_info.get('year')
+    if parsed_info['type'] == 'movie' and 'year' in parsed_info: 
+        params['primary_release_year'] = parsed_info['year']
     try:
         r = requests.get(api_url, params=params)
-        r.raise_for_status(); res = r.json()
+        r.raise_for_status()
+        res = r.json()
         if res.get('results'):
             data = res['results'][0]
-            if parsed_info['type'] == 'movie': title, year = data.get('title'), data.get('release_date', '')[:4]
-            else: title, year = f"{data.get('name')} S{parsed_info['season']:02d}E{parsed_info['episode']:02d}", data.get('first_air_date', '')[:4]
+            if parsed_info['type'] == 'movie': 
+                title, year = data.get('title'), data.get('release_date', '')[:4]
+            else: 
+                title, year = f"{data.get('name')} S{parsed_info['season']:02d}E{parsed_info['episode']:02d}", data.get('first_air_date', '')[:4]
             poster = data.get('poster_path')
-            return {'type': parsed_info['type'], 'title': title, 'original_title': data.get('original_title') or data.get('original_name'), 'description': data.get('overview'), 'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None, 'release_year': year, 'rating': round(data.get('vote_average', 0), 1)}
-    except requests.exceptions.RequestException as e: print(f"Error fetching TMDb info: {e}")
+            return {
+                'type': parsed_info['type'], 
+                'title': title, 
+                'original_title': data.get('original_title') or data.get('original_name'), 
+                'description': data.get('overview'), 
+                'poster_url': f"https://image.tmdb.org/t/p/w500{poster}" if poster else None, 
+                'release_year': year, 
+                'rating': round(data.get('vote_average', 0), 1)
+            }
+    except requests.exceptions.RequestException as e: 
+        print(f"Error fetching TMDb info: {e}")
     return None
 
 @app.route('/')
@@ -312,8 +325,10 @@ def admin_login():
     if session.get('logged_in'): return redirect(url_for('admin_dashboard'))
     if request.method == 'POST':
         if request.form['username'] == ADMIN_USER and request.form['password'] == ADMIN_PASS:
-            session['logged_in'] = True; return redirect(url_for('admin_dashboard'))
-        else: flash('Invalid credentials.', 'error')
+            session['logged_in'] = True
+            return redirect(url_for('admin_dashboard'))
+        else: 
+            flash('Invalid credentials.', 'error')
     return render_template_string(ADMIN_TEMPLATE, page_type='login', css_code=CSS_CODE)
 
 @app.route('/admin/dashboard')
@@ -327,21 +342,29 @@ def admin_dashboard():
 def admin_edit(content_id):
     content = content_collection.find_one({'_id': ObjectId(content_id)})
     if request.method == 'POST':
-        updated_data = {'title': request.form['title'], 'description': request.form['description'], 'poster_url': request.form['poster_url']}
+        updated_data = {
+            'title': request.form['title'], 
+            'description': request.form['description'], 
+            'poster_url': request.form['poster_url']
+        }
         content_collection.update_one({'_id': ObjectId(content_id)}, {'$set': updated_data})
-        flash('Content updated successfully!', 'success'); return redirect(url_for('admin_dashboard'))
+        flash('Content updated successfully!', 'success')
+        return redirect(url_for('admin_dashboard'))
     return render_template_string(ADMIN_TEMPLATE, page_type='edit', content=content, css_code=CSS_CODE)
 
 @app.route('/admin/delete/<content_id>')
 @login_required
 def admin_delete(content_id):
     content_collection.delete_one({'_id': ObjectId(content_id)})
-    flash('Content deleted successfully!', 'success'); return redirect(url_for('admin_dashboard'))
+    flash('Content deleted successfully!', 'success')
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/logout')
 def admin_logout():
-    session.pop('logged_in', None); return redirect(url_for('admin_login'))
+    session.pop('logged_in', None)
+    return redirect(url_for('admin_login'))
 
+# === প্রধান পরিবর্তন এখানে: telegram_webhook ফাংশনটি নতুন করে লেখা হয়েছে ===
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
@@ -352,17 +375,30 @@ def telegram_webhook():
             if file and content_collection is not None:
                 parsed_info = parse_filename(file.get('file_name', ''))
                 if parsed_info:
-                    existing_content = content_collection.find_one({'original_title': parsed_info['title']})
-                    if existing_content:
-                        quality_key = f"qualities.{parsed_info['quality']}"
-                        content_collection.update_one({'_id': existing_content['_id']}, {'$set': {quality_key: post['message_id']}})
-                        print(f"SUCCESS: Updated quality '{parsed_info['quality']}' for '{existing_content['title']}'")
-                    else:
-                        tmdb_data = get_tmdb_info(parsed_info)
-                        if tmdb_data:
+                    # ১. প্রথমে TMDb থেকে তথ্য আনুন
+                    tmdb_data = get_tmdb_info(parsed_info)
+                    
+                    if tmdb_data and tmdb_data.get('original_title'):
+                        # ২. TMDb থেকে পাওয়া 'original_title' দিয়ে আপনার ডাটাবেজে খুঁজুন
+                        existing_content = content_collection.find_one({
+                            'original_title': tmdb_data['original_title']
+                        })
+                        
+                        if existing_content:
+                            # ৩. যদি পাওয়া যায়, তাহলে শুধু কোয়ালিটি আপডেট করুন
+                            quality_key = f"qualities.{parsed_info['quality']}"
+                            content_collection.update_one(
+                                {'_id': existing_content['_id']},
+                                {'$set': {quality_key: post['message_id']}}
+                            )
+                            print(f"SUCCESS: Updated quality '{parsed_info['quality']}' for '{existing_content['title']}'")
+                        else:
+                            # ৪. যদি না পাওয়া যায়, তাহলে নতুন এন্ট্রি তৈরি করুন
                             tmdb_data['qualities'] = {parsed_info['quality']: post['message_id']}
                             content_collection.insert_one(tmdb_data)
                             print(f"SUCCESS: New content '{tmdb_data['title']}' saved.")
+                    else:
+                        print(f"WARNING: Could not find TMDb info for '{parsed_info['title']}'. Skipping.")
     
     elif 'message' in data:
         message = data['message']
@@ -378,9 +414,10 @@ def telegram_webhook():
                     message_id = content['qualities'][quality]
                     payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id}
                     requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
-                else: requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, content or quality not found.")
+                else: 
+                    requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=Sorry, content or quality not found.")
             except Exception as e:
-                print(f"CRITICAL ERROR: {e}")
+                print(f"CRITICAL ERROR processing start command: {e}")
                 requests.get(f"{TELEGRAM_API_URL}/sendMessage?chat_id={chat_id}&text=An unexpected error occurred.")
                 
     return jsonify(status='ok')
