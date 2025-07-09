@@ -3,3 +3,5 @@ requests
 gunicorn
 pymongo
 Jinja2
+pyrogram
+TgCrypto
