@@ -11,8 +11,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 # ======================================================================
 # --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য (এনভায়রনমেন্ট থেকে লোড হবে) ---
-# এই ভেরিয়েবলগুলো আপনার হোস্টিং এনভায়রনমেন্টে সেট করতে হবে।
-# যেমন: Heroku > Settings > Config Vars অথবা Vercel > Project > Settings > Environment Variables
 # ======================================================================
 MONGO_URI = os.environ.get("MONGO_URI")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -32,7 +30,6 @@ required_vars = {
 missing_vars = [name for name, value in required_vars.items() if not value]
 if missing_vars:
     print(f"FATAL: Missing required environment variables: {', '.join(missing_vars)}")
-    print("Please set these variables in your deployment environment and restart the application.")
     sys.exit(1)
 
 # ======================================================================
@@ -206,9 +203,11 @@ detail_html = """
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
 <title>{{ movie.title if movie else "Content Not Found" }} - MovieZone</title>
+<link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
-  :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; }
+  :root { --plyr-color-main: #E50914; --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); }
   .detail-header { position: absolute; top: 0; left: 0; right: 0; padding: 20px 50px; z-index: 100; }
@@ -224,16 +223,21 @@ detail_html = """
   .detail-meta { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 25px; font-size: 1rem; color: var(--text-dark); }
   .detail-meta span { font-weight: 700; color: var(--text-light); }
   .detail-overview { font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
-  .action-btn { background-color: var(--netflix-red); color: white; padding: 15px 30px; font-size: 1.2rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; margin-bottom: 15px; transition: all 0.2s ease; }
-  .action-btn:hover { transform: scale(1.05); background-color: #f61f29; }
   .section-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; padding-bottom: 5px; border-bottom: 2px solid var(--netflix-red); display: inline-block; }
-  .video-container { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; background: #000; border-radius: 8px; }
-  .video-container iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-  .download-section, .episode-section { margin-top: 30px; }
-  .download-button, .episode-button { display: inline-block; padding: 12px 25px; background-color: #444; color: white; text-decoration: none; border-radius: 4px; font-weight: 700; transition: background-color 0.3s ease; margin-right: 10px; margin-bottom: 10px; text-align: center; vertical-align: middle; }
-  .copy-button { background-color: #555; color: white; border: none; padding: 8px 15px; font-size: 0.9rem; cursor: pointer; border-radius: 4px; margin-left: -5px; margin-bottom: 10px; vertical-align: middle; }
-  .episode-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 15px; border-radius: 5px; background-color: #1a1a1a; border-left: 4px solid var(--netflix-red); }
-  .episode-title { font-size: 1.1rem; font-weight: 500; color: #fff; }
+  
+  .video-player-container { margin-bottom: 30px; border-radius: 8px; overflow:hidden; }
+  .stream-options, .download-section, .episode-section { margin-top: 30px; }
+  .stream-btn, .download-button, .episode-button { display: inline-block; padding: 10px 20px; background-color: #444; color: white; text-decoration: none; border: none; border-radius: 4px; font-weight: 700; transition: background-color 0.3s ease; margin-right: 10px; margin-bottom: 10px; text-align: center; vertical-align: middle; cursor:pointer; }
+  .stream-btn { background-color: var(--netflix-red); }
+  .episode-button.telegram { background-color: #2AABEE; }
+  
+  .season-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #333; }
+  .season-tab-btn { background: none; border: none; color: var(--text-dark); padding: 10px 15px; cursor: pointer; font-size: 1rem; font-weight: 700; border-bottom: 3px solid transparent; }
+  .season-tab-btn.active { color: var(--text-light); border-bottom-color: var(--netflix-red); }
+  .season-content { display: none; } .season-content.active { display: block; }
+  .episode-item { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 15px; border-radius: 5px; background-color: #1a1a1a; border-left: 4px solid var(--netflix-red); }
+  .episode-title { font-size: 1.1rem; font-weight: 500; color: #fff; margin-bottom: 10px; flex-basis: 100%; }
+  
   .ad-container { margin: 30px 0; text-align: center; }
   .related-section-container { padding: 40px 0; background-color: #181818; }
   .carousel-row { margin: 40px 0; position: relative; } .carousel-wrapper { position: relative; }
@@ -249,11 +253,10 @@ detail_html = """
   @media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 5; animation: rgb-glow 2.5s infinite linear; } }
   @media (max-width: 992px) { .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } }
   @media (max-width: 768px) { .detail-header { padding: 20px; } .detail-hero { padding: 80px 20px 40px; } .detail-poster { width: 60%; max-width: 220px; height: auto; } .detail-title { font-size: 2.2rem; }
-  .action-btn, .download-button { display: block; width: 100%; max-width: 320px; margin: 0 auto 10px auto; }
-  .episode-item { flex-direction: column; align-items: flex-start; gap: 10px; } .episode-button { width: 100%; }
+  .stream-btn, .download-button, .episode-button { width: 100%; max-width: 320px; margin: 0 auto 10px auto; }
+  .episode-item { flex-direction: column; align-items: center; } .episode-title { text-align:center; }
   .section-title { margin-left: 15px !important; } .related-section-container { padding: 20px 0; } .carousel-content { padding: 0 15px; } .related-movie-card-wrapper { min-width: 130px; } .carousel-arrow { display: none; } }
 </style>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
 <body>
 {% macro render_movie_card(m) %}<a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">{% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}<img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}"></a>{% endmacro %}
@@ -267,59 +270,127 @@ detail_html = """
       <div class="detail-meta">{% if movie.release_date %}<span>{{ movie.release_date.split('-')[0] }}</span>{% endif %}{% if movie.vote_average %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(movie.vote_average) }}</span>{% endif %}{% if movie.genres %}<span>{{ movie.genres | join(' • ') }}</span>{% endif %}</div>
       <p class="detail-overview">{{ movie.overview }}</p>
       
-      {% if movie.type == 'movie' and movie.watch_link %}<a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="action-btn"><i class="fas fa-play"></i> Watch Now</a>{% endif %}
-      
-      {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
-      {% if trailer_key %}<div class="trailer-section"><h3 class="section-title">Watch Trailer</h3><div class="video-container"><iframe src="https://www.youtube.com/embed/{{ trailer_key }}" frameborder="0" allowfullscreen></iframe></div></div>{% endif %}
-      <div style="margin: 20px 0;"><a href="{{ url_for('contact', report_id=movie._id, title=movie.title) }}" class="download-button" style="background-color:#5a5a5a; text-align:center;"><i class="fas fa-flag"></i> Report a Problem</a></div>
+      <!-- Video Player Container -->
+      <div class="video-player-container" style="display:none; margin-top:20px;">
+          <video id="player" playsinline controls></video>
+      </div>
 
       {% if movie.is_coming_soon %}
         <h3 class="section-title">Coming Soon</h3>
-      
-      {% elif movie.type == 'movie' %}
-        <div class="download-section">
-          <!-- ম্যানুয়াল লিঙ্কের জন্য (অ্যাডমিন প্যানেল থেকে) -->
-          {% if movie.links %}
-            <h3 class="section-title">Download Links (Manual)</h3>
-            {% for link_item in movie.links %}
-              <div><a class="download-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> {{ link_item.quality }}</a><button class="copy-button" onclick="copyToClipboard('{{ link_item.url }}')"><i class="fas fa-copy"></i></button></div>
-            {% endfor %}
-          {% endif %}
-
-          <!-- টেলিগ্রাম থেকে আসা ফাইলের জন্য -->
-          {% if movie.files %}
-            <h3 class="section-title">Get from Telegram</h3>
-            {% for file in movie.files | sort(attribute='quality') %}
-               <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="action-btn" style="background-color: #2AABEE; display: block; text-align:center; margin-top:10px; margin-bottom: 0;">
-                 <i class="fa-brands fa-telegram"></i> Get {{ file.quality }}
-               </a>
-            {% endfor %}
-          {% endif %}
+      {% elif movie.type == 'movie' and movie.files %}
+        <div class="stream-options">
+          <h3 class="section-title">Watch Online</h3>
+          {% for file in movie.files | sort(attribute='quality') %}
+            <button class="stream-btn" onclick="loadVideo('{{ movie._id }}', 'movie', '{{ file.quality }}', null, null)">
+                <i class="fas fa-play"></i> Play {{ file.quality }}
+            </button>
+          {% endfor %}
         </div>
-      
-      {% elif movie.type == 'series' %}
+        <div class="download-section">
+          <h3 class="section-title">Get from Telegram</h3>
+          {% for file in movie.files | sort(attribute='quality') %}
+             <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="episode-button telegram">
+               <i class="fa-brands fa-telegram"></i> Get {{ file.quality }}
+             </a>
+          {% endfor %}
+        </div>
+      {% elif movie.type == 'series' and movie.episodes %}
         <div class="episode-section">
           <h3 class="section-title">Episodes</h3>
-          {% if movie.episodes %}
-            {% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}
-              <div class="episode-item">
-                  <span class="episode-title">Season {{ ep.season }} - Episode {{ ep.episode_number }}</span>
-                  <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="episode-button" style="background-color: #2AABEE;"><i class="fa-brands fa-telegram"></i> Get Episode</a>
-              </div>
+          <div class="season-tabs">
+            {% for season, episodes in movie.episodes|sort(attribute='season')|groupby('season') %}
+              <button class="season-tab-btn {% if loop.first %}active{% endif %}" onclick="openSeason(event, 'Season{{ season }}')">Season {{ season }}</button>
             {% endfor %}
-          {% else %}
-            <p>No episodes available yet.</p>
-          {% endif %}
+          </div>
+          {% for season, episodes in movie.episodes|sort(attribute='episode_number')|sort(attribute='season')|groupby('season') %}
+            <div id="Season{{ season }}" class="season-content {% if loop.first %}active{% endif %}">
+              {% for ep in episodes %}
+                <div class="episode-item">
+                    <span class="episode-title">Episode {{ ep.episode_number }}</span>
+                    <div>
+                        <button class="stream-btn" onclick="loadVideo('{{ movie._id }}', 'series', null, '{{ ep.season }}', '{{ ep.episode_number }}')">
+                            <i class="fas fa-play"></i> Play Episode
+                        </button>
+                        <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="episode-button telegram"><i class="fa-brands fa-telegram"></i> Get</a>
+                    </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endfor %}
         </div>
       {% endif %}
 
+      <div style="margin: 30px 0;"><a href="{{ url_for('contact', report_id=movie._id, title=movie.title) }}" class="download-button" style="background-color:#5a5a5a; text-align:center;"><i class="fas fa-flag"></i> Report a Problem</a></div>
     </div>
   </div>
 </div>
 {% if related_movies %}<div class="related-section-container"><div class="carousel-row" style="margin-top: 20px; margin-bottom: 20px;"><h3 class="section-title" style="margin-left: 50px; color: white;">You Might Also Like</h3><div class="carousel-wrapper"><div class="carousel-content">{% for m in related_movies %}<div class="related-movie-card-wrapper">{{ render_movie_card(m) }}</div>{% endfor %}</div><button class="carousel-arrow prev"><i class="fas fa-chevron-left"></i></button><button class="carousel-arrow next"><i class="fas fa-chevron-right"></i></button></div></div></div>{% endif %}
 {% else %}<div style="display:flex; justify-content:center; align-items:center; height:100vh;"><h2>Content not found.</h2></div>{% endif %}
+<script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
 <script>
-function copyToClipboard(text) { navigator.clipboard.writeText(text).then(() => alert('Link copied!'), () => alert('Copy failed!')); }
+const player = new Plyr('#player', {
+    title: '{{ movie.title }}',
+    controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+});
+
+function openSeason(evt, seasonName) {
+  let i, seasonContent, seasonTabBtns;
+  seasonContent = document.getElementsByClassName("season-content");
+  for (i = 0; i < seasonContent.length; i++) {
+    seasonContent[i].style.display = "none";
+    seasonContent[i].classList.remove("active");
+  }
+  seasonTabBtns = document.getElementsByClassName("season-tab-btn");
+  for (i = 0; i < seasonTabBtns.length; i++) {
+    seasonTabBtns[i].classList.remove("active");
+  }
+  document.getElementById(seasonName).style.display = "block";
+  document.getElementById(seasonName).classList.add("active");
+  evt.currentTarget.classList.add("active");
+}
+
+function loadVideo(contentId, contentType, quality, season, episode) {
+    const playerContainer = document.querySelector('.video-player-container');
+    playerContainer.style.display = 'block';
+    playerContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    player.stop();
+    player.source = {
+        type: 'video',
+        title: 'Loading...',
+        sources: []
+    };
+
+    let apiUrl;
+    if (contentType === 'movie') {
+        apiUrl = `/api/stream/${contentId}/movie/${quality}`;
+    } else if (contentType === 'series') {
+        apiUrl = `/api/stream/${contentId}/series/${season}_${episode}`;
+    }
+
+    fetch(apiUrl)
+        .then(response => response.json())
+        .then(data => {
+            if(data.stream_link) {
+                player.source = {
+                    type: 'video',
+                    title: '{{ movie.title }}' + (contentType === 'series' ? ` S${season}E${episode}` : ''),
+                    sources: [{
+                        src: data.stream_link,
+                        type: 'video/mp4', // Adjust if you have other formats
+                    }],
+                };
+                player.play();
+            } else {
+                alert('Error: ' + (data.error || 'Could not load video.'));
+                playerContainer.style.display = 'none';
+            }
+        })
+        .catch(err => {
+            console.error('Fetch Error:', err);
+            alert('A critical error occurred while trying to load the video.');
+            playerContainer.style.display = 'none';
+        });
+}
 document.querySelectorAll('.carousel-arrow').forEach(button => { button.addEventListener('click', () => { const carousel = button.closest('.carousel-wrapper').querySelector('.carousel-content'); const scrollAmount = carousel.clientWidth * 0.8; carousel.scrollLeft += button.classList.contains('next') ? scrollAmount : -scrollAmount; }); });
 </script>
 {% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
@@ -549,18 +620,7 @@ def movie_detail(movie_id):
         if movie.get("genres"):
             related_movies = list(movies.find({"genres": {"$in": movie["genres"]}, "_id": {"$ne": ObjectId(movie_id)}}).limit(12))
             
-        trailer_key = None
-        if movie.get("tmdb_id") and TMDB_API_KEY:
-            tmdb_type = "tv" if movie.get("type") == "series" else "movie"
-            video_url = f"https://api.themoviedb.org/3/{tmdb_type}/{movie['tmdb_id']}/videos?api_key={TMDB_API_KEY}"
-            try:
-                video_res = requests.get(video_url, timeout=3).json()
-                for v in video_res.get("results", []):
-                    if v.get('type') == 'Trailer' and v.get('site') == 'YouTube': 
-                        trailer_key = v.get('key'); break
-            except requests.RequestException: pass
-                
-        return render_template_string(detail_html, movie=movie, trailer_key=trailer_key, related_movies=process_movie_list(related_movies))
+        return render_template_string(detail_html, movie=movie, related_movies=process_movie_list(related_movies))
     except Exception as e: return f"An error occurred: {e}", 500
 
 @app.route('/watch/<movie_id>')
@@ -592,8 +652,52 @@ def coming_soon(): return render_full_list(list(movies.find({"is_coming_soon": T
 def recently_added_all(): return render_full_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1)), "Recently Added")
 
 # ======================================================================
-# --- Admin and Webhook Routes ---
+# --- API and Webhook Routes ---
 # ======================================================================
+
+@app.route('/api/stream/<content_id>/<content_type>/<details>')
+def get_stream_link(content_id, content_type, details):
+    try:
+        content = movies.find_one({"_id": ObjectId(content_id)})
+        if not content:
+            return jsonify({"error": "Content not found"}), 404
+
+        target_file_id = None
+        if content_type == 'movie':
+            quality = details
+            target_file = next((f for f in content.get('files', []) if f.get('quality') == quality), None)
+            if target_file:
+                target_file_id = target_file.get('file_id')
+        
+        elif content_type == 'series':
+            try:
+                s_num, e_num = map(int, details.split('_'))
+                target_episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == s_num and ep.get('episode_number') == e_num), None)
+                if target_episode:
+                    target_file_id = target_episode.get('file_id')
+            except (ValueError, IndexError):
+                 return jsonify({"error": "Invalid series details format"}), 400
+
+        if not target_file_id:
+            return jsonify({"error": "Requested file or episode not found"}), 404
+        
+        # Get temporary file link from Telegram
+        get_file_url = f"{TELEGRAM_API_URL}/getFile?file_id={target_file_id}"
+        res = requests.get(get_file_url, timeout=10)
+        res_data = res.json()
+
+        if not res_data.get('ok'):
+            return jsonify({"error": "Could not retrieve file from Telegram. It might be deleted."}), 502
+
+        file_path = res_data['result']['file_path']
+        stream_link = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+        
+        return jsonify({"stream_link": stream_link})
+
+    except Exception as e:
+        print(f"Error in get_stream_link: {e}")
+        return jsonify({"error": "An internal server error occurred"}), 500
+
 
 @app.route('/admin', methods=["GET", "POST"])
 @requires_auth
@@ -699,30 +803,41 @@ def telegram_webhook():
             return jsonify(status='ok', reason='no_file_in_post')
 
         filename = file.get('file_name')
-        print(f"Webhook: Received file: {filename}")
+        file_id = file.get('file_id') # <<<--- নতুন: file_id গ্রহণ করা
+        if not file_id:
+             return jsonify(status='ok', reason='no_file_id_in_post')
 
         parsed_info = parse_filename(filename)
-        print(f"Webhook: Parsed Info: {parsed_info}")
-
         quality_match = re.search(r'(\d{3,4})p', filename, re.IGNORECASE)
         quality = quality_match.group(1) + "p" if quality_match else "HD"
-        print(f"Webhook: Detected Quality: {quality}")
-
+        
         tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-
         if not tmdb_data or not tmdb_data.get("tmdb_id"):
-            print(f"Webhook FATAL: Could not find TMDb data or tmdb_id for '{parsed_info['title']}'. Skipping.")
-            return jsonify(status='ok', reason='no_tmdb_data_or_id')
+            print(f"Webhook FATAL: Could not find TMDb data for '{parsed_info['title']}'.")
+            return jsonify(status='ok', reason='no_tmdb_data')
         
         tmdb_id = tmdb_data.get("tmdb_id")
-        print(f"Webhook: Found TMDb Data: {tmdb_data.get('title')} (ID: {tmdb_id})")
 
         if parsed_info['type'] == 'series':
             existing_series = movies.find_one({"tmdb_id": tmdb_id})
-            new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id'], "quality": quality}
+            # <<<--- নতুন: file_id সহ এপিসোড ডকুমেন্ট তৈরি
+            new_episode = {
+                "season": parsed_info['season'], 
+                "episode_number": parsed_info['episode'], 
+                "message_id": post['message_id'], 
+                "file_id": file_id, 
+                "quality": quality
+            }
             if existing_series:
-                movies.update_one({"_id": existing_series['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
-                movies.update_one({"_id": existing_series['_id']}, {"$push": {"episodes": new_episode}})
+                # একই পর্ব থাকলে সেটাকে রিপ্লেস করা
+                movies.update_one(
+                    {"_id": existing_series['_id']}, 
+                    {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}}
+                )
+                movies.update_one(
+                    {"_id": existing_series['_id']}, 
+                    {"$push": {"episodes": new_episode}}
+                )
                 print(f"Webhook: Updated series '{existing_series['title']}'.")
             else:
                 series_doc = {**tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False, "episodes": [new_episode]}
@@ -731,10 +846,18 @@ def telegram_webhook():
         
         else: # type == 'movie'
             existing_movie = movies.find_one({"tmdb_id": tmdb_id})
-            new_file = {"quality": quality, "message_id": post['message_id']}
+            # <<<--- নতুন: file_id সহ ফাইল ডকুমেন্ট তৈরি
+            new_file = {"quality": quality, "message_id": post['message_id'], "file_id": file_id}
             if existing_movie:
-                movies.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
-                movies.update_one({"_id": existing_movie['_id']}, {"$push": {"files": new_file}})
+                # একই কোয়ালিটির ফাইল থাকলে সেটাকে রিপ্লেস করা
+                movies.update_one(
+                    {"_id": existing_movie['_id']}, 
+                    {"$pull": {"files": {"quality": new_file['quality']}}}
+                )
+                movies.update_one(
+                    {"_id": existing_movie['_id']}, 
+                    {"$push": {"files": new_file}}
+                )
                 print(f"Webhook: Updated movie '{existing_movie['title']}' with new quality.")
             else:
                 movie_doc = {**tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False, "files": [new_file]}
@@ -798,5 +921,18 @@ def telegram_webhook():
     return jsonify(status='ok')
 
 if __name__ == "__main__":
+    # For local development, create dummy env vars if they don't exist
+    if not all(value for name, value in required_vars.items()):
+        print("WARNING: Some environment variables are missing. Using dummy values for local run.")
+        print("This will NOT work in production. Please set environment variables.")
+        MONGO_URI = MONGO_URI or "mongodb://localhost:27017/movie_db"
+        BOT_TOKEN = BOT_TOKEN or "YOUR_BOT_TOKEN"
+        TMDB_API_KEY = TMDB_API_KEY or "YOUR_TMDB_API_KEY"
+        ADMIN_CHANNEL_ID = ADMIN_CHANNEL_ID or "-100..."
+        BOT_USERNAME = BOT_USERNAME or "YourBotUsername"
+        ADMIN_USERNAME = ADMIN_USERNAME or "admin"
+        ADMIN_PASSWORD = ADMIN_PASSWORD or "password"
+        TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+    
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
