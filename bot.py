@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from pyrogram import Client
 from threading import Thread
+import time
 
 # ======================================================================
 # --- এনভায়রনমেন্ট ভেরিয়েবল লোড ও ভেরিফাই ---
@@ -495,6 +496,7 @@ def stream_file_route(content_id, content_type, details):
     try:
         content = movies.find_one({"_id": ObjectId(content_id)})
         if not content: return "Content not found", 404
+        
         target_message_id = None
         if content_type == 'movie':
             target_file = next((f for f in content.get('files', []) if f.get('quality') == details), None)
@@ -503,11 +505,13 @@ def stream_file_route(content_id, content_type, details):
             s_num, e_num = map(int, details.split('_'))
             target_episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == s_num and ep.get('episode_number') == e_num), None)
             if target_episode: target_message_id = target_episode.get('message_id')
+            
         if not target_message_id: return "File/episode message_id not found in database.", 404
 
         def generate_for_flask():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            
             if not pyro_client.is_connected:
                 loop.run_until_complete(pyro_client.start())
             
@@ -605,8 +609,25 @@ def telegram_webhook():
 @app.route('/admin', methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
-        # ... (অপরিবর্তিত)
-        pass 
+        content_type = request.form.get("content_type", "movie")
+        tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
+        movie_data = {"title": request.form.get("title"), "type": content_type, **tmdb_data, "is_trending": False, "is_coming_soon": False}
+        if content_type == "movie":
+            movie_data["watch_link"] = request.form.get("watch_link", "")
+            links = []; quality_map = {"480p": "link_480p", "720p": "link_720p", "1080p": "link_1080p"}
+            for q, f in quality_map.items():
+                if request.form.get(f): links.append({"quality": q, "url": request.form.get(f)})
+            movie_data["links"] = links
+        else:
+            episodes = []
+            for i in range(len(request.form.getlist('episode_number[]'))):
+                ep_links = []
+                if request.form.getlist('episode_link_480p[]')[i]: ep_links.append({"quality": "480p", "url": request.form.getlist('episode_link_480p[]')[i]})
+                if request.form.getlist('episode_link_720p[]')[i]: ep_links.append({"quality": "720p", "url": request.form.getlist('episode_link_720p[]')[i]})
+                episodes.append({"season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(request.form.getlist('episode_number[]')[i]), "title": request.form.getlist('episode_title[]')[i], "watch_link": request.form.getlist('episode_watch_link[]')[i], "links": ep_links})
+            movie_data["episodes"] = episodes
+        movies.insert_one(movie_data)
+        return redirect(url_for('admin'))
     all_content = process_movie_list(list(movies.find().sort('_id', -1)))
     feedback_list = process_movie_list(list(feedback.find().sort('timestamp', -1)))
     return render_template_string(admin_html, all_content=all_content, feedback_list=feedback_list)
@@ -619,8 +640,29 @@ def save_ads():
 
 @app.route('/edit_movie/<movie_id>', methods=["GET", "POST"])
 def edit_movie(movie_id):
-    # ... (অপরিবর্তিত)
-    pass
+    movie_obj = movies.find_one({"_id": ObjectId(movie_id)})
+    if not movie_obj: return "Movie not found", 404
+    if request.method == "POST":
+        content_type = request.form.get("content_type", "movie")
+        update_data = {"title": request.form.get("title"), "type": content_type, "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true", "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(), "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], "poster_badge": request.form.get("poster_badge", "").strip() or None}
+        if content_type == "movie":
+            update_data["watch_link"] = request.form.get("watch_link", "")
+            links = []; quality_map = {"480p": "link_480p", "720p": "link_720p", "1080p": "link_1080p"}
+            for q, f in quality_map.items():
+                if request.form.get(f): links.append({"quality": q, "url": request.form.get(f)})
+            update_data["links"] = links
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data, "$unset": {"episodes": ""}})
+        else:
+            episodes = []
+            for i in range(len(request.form.getlist('episode_number[]'))):
+                ep_links = []
+                if request.form.getlist('episode_link_480p[]')[i]: ep_links.append({"quality": "480p", "url": request.form.getlist('episode_link_480p[]')[i]})
+                if request.form.getlist('episode_link_720p[]')[i]: ep_links.append({"quality": "720p", "url": request.form.getlist('episode_link_720p[]')[i]})
+                episodes.append({"season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(request.form.getlist('episode_number[]')[i]), "title": request.form.getlist('episode_title[]')[i], "watch_link": request.form.getlist('episode_watch_link[]')[i], "links": ep_links})
+            update_data["episodes"] = episodes
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data, "$unset": {"links": "", "watch_link": ""}})
+        return redirect(url_for('admin'))
+    return render_template_string(edit_html, movie=movie_obj)
 
 @app.route('/delete_movie/<movie_id>')
 def delete_movie(movie_id):
@@ -629,9 +671,14 @@ def delete_movie(movie_id):
 
 @app.route('/contact', methods=['GET', 'POST'])
 def contact():
-    # ... (অপরিবর্তিত)
-    pass
-
+    if request.method == 'POST':
+        feedback_data = {"type": request.form.get("type"), "content_title": request.form.get("content_title"), "message": request.form.get("message"), "email": request.form.get("email", "").strip(), "reported_content_id": request.form.get("reported_content_id"), "timestamp": datetime.utcnow()}
+        feedback.insert_one(feedback_data)
+        return render_template_string(contact_html, message_sent=True)
+    prefill_title, prefill_id = request.args.get('title', ''), request.args.get('report_id', '')
+    prefill_type = 'Problem Report' if prefill_id else 'Movie Request'
+    return render_template_string(contact_html, message_sent=False, prefill_title=prefill_title, prefill_id=prefill_id, prefill_type=prefill_type)
+    
 @app.route('/delete_feedback/<feedback_id>')
 def delete_feedback(feedback_id):
     feedback.delete_one({"_id": ObjectId(feedback_id)})
@@ -640,17 +687,43 @@ def delete_feedback(feedback_id):
 # ======================================================================
 # --- অ্যাপ এবং Pyrogram ক্লায়েন্ট চালু করা ---
 # ======================================================================
-def run_pyrogram_in_thread():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    print("Starting Pyrogram client in a background thread...")
-    pyro_client.run()
+async def start_pyrogram_client():
+    await pyro_client.start()
+    print("Pyrogram client started.")
+
+async def stop_pyrogram_client():
+    if pyro_client.is_connected:
+        await pyro_client.stop()
+        print("Pyrogram client stopped.")
+
+def run_flask_app():
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Starting Flask application on port {port}...")
+    # প্রোডাকশন সার্ভার Gunicorn এটি ব্যবহার করবে না
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
-    pyrogram_thread = Thread(target=run_pyrogram_in_thread)
-    pyrogram_thread.daemon = True
-    pyrogram_thread.start()
+    # এই ব্লকটি শুধুমাত্র `python app.py` দিয়ে সরাসরি চালালে কাজ করবে।
+    # Gunicorn বা অন্যান্য WSGI সার্ভার এটি ব্যবহার করে না।
     
-    print("Starting Flask application...")
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # asyncio ইভেন্ট লুপ তৈরি এবং Pyrogram ক্লায়েন্ট চালু করা
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(start_pyrogram_client())
+        
+        # Flask অ্যাপটি একটি পৃথক থ্রেডে চালানো
+        flask_thread = Thread(target=run_flask_app)
+        flask_thread.daemon = True
+        flask_thread.start()
+        
+        # মূল থ্রেডকে অনির্দিষ্টকালের জন্য চলমান রাখা
+        # KeyboardInterrupt (Ctrl+C) দিয়ে বন্ধ করা যাবে
+        while flask_thread.is_alive():
+            time.sleep(1)
+
+    except KeyboardInterrupt:
+        print("Shutdown signal received.")
+    finally:
+        print("Shutting down services...")
+        loop.run_until_complete(stop_pyrogram_client())
+        print("Shutdown complete.")
