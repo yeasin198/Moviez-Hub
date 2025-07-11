@@ -19,11 +19,13 @@ ADMIN_CHANNEL_ID = os.environ.get("ADMIN_CHANNEL_ID")
 BOT_USERNAME = os.environ.get("BOT_USERNAME")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+LINK_BOT_USERNAME = os.environ.get("LINK_BOT_USERNAME") 
 
 required_vars = {
     "MONGO_URI": MONGO_URI, "BOT_TOKEN": BOT_TOKEN, "TMDB_API_KEY": TMDB_API_KEY,
     "ADMIN_CHANNEL_ID": ADMIN_CHANNEL_ID, "BOT_USERNAME": BOT_USERNAME,
     "ADMIN_USERNAME": ADMIN_USERNAME, "ADMIN_PASSWORD": ADMIN_PASSWORD,
+    "LINK_BOT_USERNAME": LINK_BOT_USERNAME
 }
 
 missing_vars = [name for name, value in required_vars.items() if not value]
@@ -50,7 +52,6 @@ except Exception as e:
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
-# (এখানে আপনার সম্পূর্ণ HTML কোডগুলো থাকবে)
 # ======================================================================
 index_html = """
 <!DOCTYPE html>
@@ -327,7 +328,7 @@ button[type="submit"], .add-episode-btn { background: var(--netflix-red); color:
     <div class="form-group"><label>Poster URL:</label><input type="url" name="poster" value="{{ movie.poster or '' }}" /></div><div class="form-group"><label>Overview:</label><textarea name="overview">{{ movie.overview or '' }}</textarea></div>
     <div class="form-group"><label>Genres (comma separated):</label><input type="text" name="genres" value="{{ movie.genres|join(', ') if movie.genres else '' }}" /></div>
     <div class="form-group"><label>Poster Badge:</label><input type="text" name="poster_badge" value="{{ movie.poster_badge or '' }}" /></div>
-    <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleEpisodeFields()"><option value="movie">Movie</option><option value="series">TV/Web Series</option></select></div>
+    <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleEpisodeFields()"><option value="movie" {% if movie.type == 'movie' %}selected{% endif %}>Movie</option><option value="series" {% if movie.type == 'series' %}selected{% endif %}>TV/Web Series</option></select></div>
     <div id="movie_fields"><div class="form-group"><label>Watch Link:</label><input type="url" name="watch_link" value="{{ movie.watch_link or '' }}" /></div></div>
     <div id="episode_fields" style="display: none;"><h3>Episodes</h3><div id="episodes_container">
       {% if movie.type == 'series' and movie.episodes %}{% for ep in movie.episodes %}<div class="episode-item">
@@ -366,7 +367,7 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 
 
 # ======================================================================
-# --- Helper Functions and Authentication ---
+# --- Helper Functions, Auth, Scheduler, and Context ---
 # ======================================================================
 def check_auth(username, password): return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 def authenticate(): return Response('Could not verify your access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
@@ -378,9 +379,11 @@ def requires_auth_wrapper():
         if not auth or not check_auth(auth.username, auth.password):
             return authenticate()
 
-def parse_filename(caption):
-    # এখন আমরা পুরো ক্যাপশন থেকে তথ্য বের করব
-    cleaned_name = (caption.split('\n')[0]).strip() # প্রথম লাইনকে টাইটেল হিসেবে ধরা হচ্ছে
+def parse_filename_from_post(post):
+    file = post.get('video') or post.get('document')
+    filename = file.get('file_name', '') if file else ''
+    caption = post.get('caption', filename)
+    cleaned_name = (caption.split('\n')[0]).strip()
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', cleaned_name, re.IGNORECASE)
     if series_match:
         title = series_match.group(1).strip()
@@ -392,9 +395,9 @@ def parse_filename(caption):
 
 def parse_links_from_caption(caption):
     stream_link, download_link = None, None
-    stream_match = re.search(r'stream:\s*(https?://[^\s]+)', caption, re.IGNORECASE)
+    stream_match = re.search(r'stream(?:_link)?:?\s*(https?://[^\s]+)', caption, re.IGNORECASE | re.DOTALL)
     if stream_match: stream_link = stream_match.group(1)
-    download_match = re.search(r'download:\s*(https?://[^\s]+)', caption, re.IGNORECASE)
+    download_match = re.search(r'download(?:_link)?:?\s*(https?://[^\s]+)', caption, re.IGNORECASE | re.DOTALL)
     if download_match: download_link = download_match.group(1)
     return stream_link, download_link
 
@@ -432,7 +435,7 @@ scheduler = BackgroundScheduler(daemon=True)
 scheduler.start()
 
 # ======================================================================
-# --- Main Flask Routes (অপরিবর্তিত) ---
+# --- Main Flask Routes ---
 # ======================================================================
 @app.route('/')
 def home():
@@ -480,75 +483,60 @@ def coming_soon(): return render_full_list(list(movies.find({"is_coming_soon": T
 def recently_added_all(): return render_full_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1)), "Recently Added")
 
 # ======================================================================
-# --- Webhook and Admin Routes (নতুন লজিক সহ) ---
+# --- Webhook and Admin Routes ---
 # ======================================================================
 def handle_post(post):
     if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return
     
-    file = post.get('video') or post.get('document')
-    caption = post.get('caption', '')
-    message_id = post.get('message_id')
-    
-    if not (file and caption and message_id): return
-
-    filename = file.get('file_name', '')
-    parsed_info = parse_filename(caption)
-    quality_match = re.search(r'(\d{3,4})p', filename, re.IGNORECASE)
-    quality = quality_match.group(1) + "p" if quality_match else "HD"
-    
-    stream_link, download_link = parse_links_from_caption(caption)
-    
-    tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-    if not tmdb_data or not tmdb_data.get("tmdb_id"): return
-    tmdb_id = tmdb_data.get("tmdb_id")
-
-    if parsed_info['type'] == 'series':
-        episode_data = {
-            "season": parsed_info['season'], 
-            "episode_number": parsed_info['episode'], 
-            "message_id": message_id, 
-            "quality": quality,
-            "stream_link": stream_link,
-            "download_link": download_link
-        }
-        # প্রথমে এপিসোডটি আপডেট করার চেষ্টা
-        result = movies.update_one(
-            {"tmdb_id": tmdb_id, "episodes.season": episode_data['season'], "episodes.episode_number": episode_data['episode_number']},
-            {"$set": {"episodes.$": episode_data}}
-        )
-        # যদি এপিসোড না থাকে, তাহলে পুশ করা
-        if result.matched_count == 0:
+    # কেস ১: পোস্টটি ফাইল-টু-লিঙ্ক বট থেকে এসেছে
+    if post.get('from', {}).get('username') == LINK_BOT_USERNAME and post.get('reply_to_message'):
+        original_message_id = post['reply_to_message']['message_id']
+        caption = post.get('text', '')
+        stream_link, download_link = parse_links_from_caption(caption)
+        
+        if stream_link or download_link:
+            update_fields = {}
+            if stream_link: update_fields.update({"files.$.stream_link": stream_link, "episodes.$.stream_link": stream_link})
+            if download_link: update_fields.update({"files.$.download_link": download_link, "episodes.$.download_link": download_link})
+            
             movies.update_one(
-                {"tmdb_id": tmdb_id},
-                {"$push": {"episodes": episode_data}},
-                upsert=True,
-                # upsert হলে নতুন ডকুমেন্ট তৈরি হবে
-                set_on_insert={**tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False}
+                {"$or": [{"files.message_id": original_message_id}, {"episodes.message_id": original_message_id}]},
+                {"$set": update_fields}
             )
-    else: # Movie
-        file_data = {"quality": quality, "message_id": message_id, "stream_link": stream_link, "download_link": download_link}
-        # প্রথমে কোয়ালিটি আপডেট করার চেষ্টা
-        result = movies.update_one({"tmdb_id": tmdb_id, "files.quality": file_data['quality']},{"$set": {"files.$": file_data}})
-        # যদি কোয়ালিটি না থাকে, তাহলে পুশ করা
-        if result.matched_count == 0:
-            movies.update_one(
-                {"tmdb_id": tmdb_id},
-                {"$push": {"files": file_data}},
-                upsert=True,
-                # upsert হলে নতুন ডকুমেন্ট তৈরি হবে
-                set_on_insert={**tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False}
-            )
+            print(f"Updated links for original message_id: {original_message_id}")
+
+    # কেস ২: পোস্টটি অ্যাডমিন করেছে (নতুন ফাইল)
+    else:
+        file = post.get('video') or post.get('document')
+        if not file: return
+        
+        message_id = post.get('message_id')
+        parsed_info = parse_filename_from_post(post)
+        
+        tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
+        if not tmdb_data or not tmdb_data.get("tmdb_id"): return
+        
+        quality_match = re.search(r'(\d{3,4})p', file.get('file_name', ''), re.IGNORECASE)
+        quality = quality_match.group(1) + "p" if quality_match else "HD"
+
+        if parsed_info['type'] == 'series':
+            episode_data = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": message_id, "quality": quality}
+            movies.update_one({"tmdb_id": tmdb_data['tmdb_id']}, {"$push": {"episodes": episode_data}}, upsert=True, set_on_insert={**tmdb_data, "type": "series"})
+        else:
+            file_data = {"quality": quality, "message_id": message_id}
+            movies.update_one({"tmdb_id": tmdb_data['tmdb_id']}, {"$push": {"files": file_data}}, upsert=True, set_on_insert={**tmdb_data, "type": "movie"})
+
+        try:
+            requests.post(f"{TELEGRAM_API_URL}/forwardMessage", json={'chat_id': f'@{LINK_BOT_USERNAME}', 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id})
+        except Exception as e: print(f"Error forwarding to link bot: {e}")
+
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
-    if 'channel_post' in data:
-        handle_post(data['channel_post'])
-    elif 'edited_channel_post' in data:
-        # এডিট করা পোস্টও হ্যান্ডেল করা হচ্ছে
-        handle_post(data['edited_channel_post'])
-    elif 'message' in data:
-        # /start কমান্ড হ্যান্ডলিং অপরিবর্তিত
+    if 'channel_post' in data: handle_post(data['channel_post'])
+    elif 'edited_channel_post' in data: handle_post(data['edited_channel_post'])
+    elif 'message' in data: # /start কমান্ড হ্যান্ডলিং
         message = data['message']
         chat_id = message['chat']['id']
         text = message.get('text', '')
@@ -562,8 +550,7 @@ def telegram_webhook():
                     if not content: return jsonify(status='ok')
                     message_to_copy_id = None
                     if content.get('type') == 'series' and len(payload_parts) == 3:
-                        s_num, e_num = int(payload_parts[1]), int(payload_parts[2])
-                        target_episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == s_num and ep.get('episode_number') == e_num), None)
+                        target_episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == int(payload_parts[1]) and ep.get('episode_number') == int(payload_parts[2])), None)
                         if target_episode: message_to_copy_id = target_episode.get('message_id')
                     elif content.get('type') == 'movie' and len(payload_parts) == 2:
                         target_file = next((f for f in content.get('files', []) if f.get('quality') == payload_parts[1]), None)
@@ -580,39 +567,74 @@ def telegram_webhook():
 
 @app.route('/admin', methods=["GET", "POST"])
 def admin():
-    # Admin Panel রুট অপরিবর্তিত
-    pass 
+    if request.method == "POST":
+        content_type = request.form.get("content_type", "movie")
+        tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
+        movie_data = {"title": request.form.get("title"), "type": content_type, **tmdb_data, "is_trending": False, "is_coming_soon": False}
+        if content_type == "movie":
+            movie_data["watch_link"] = request.form.get("watch_link", "")
+        else:
+            episodes = []
+            for i in range(len(request.form.getlist('episode_number[]'))):
+                episodes.append({"season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(request.form.getlist('episode_number[]')[i]), "title": request.form.getlist('episode_title[]')[i]})
+            movie_data["episodes"] = episodes
+        movies.insert_one(movie_data)
+        return redirect(url_for('admin'))
+    all_content = process_movie_list(list(movies.find().sort('_id', -1)))
+    feedback_list = process_movie_list(list(feedback.find().sort('timestamp', -1)))
+    return render_template_string(admin_html, all_content=all_content, feedback_list=feedback_list)
 
 @app.route('/admin/save_ads', methods=['POST'])
 def save_ads():
-    # Admin Panel রুট অপরিবর্তিত
-    pass
+    ad_codes = {k: request.form.get(k, "") for k in ["popunder_code", "social_bar_code", "banner_ad_code", "native_banner_code"]}
+    settings.update_one({}, {"$set": ad_codes}, upsert=True)
+    return redirect(url_for('admin'))
 
 @app.route('/edit_movie/<movie_id>', methods=["GET", "POST"])
 def edit_movie(movie_id):
-    # Admin Panel রুট অপরিবর্তিত
-    pass
+    movie_obj = movies.find_one({"_id": ObjectId(movie_id)})
+    if not movie_obj: return "Movie not found", 404
+    if request.method == "POST":
+        update_data = {"title": request.form.get("title"), "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true", "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(), "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], "poster_badge": request.form.get("poster_badge", "").strip() or None}
+        if movie_obj['type'] == "series":
+            episodes = movie_obj.get('episodes', [])
+            for i in range(len(request.form.getlist('episode_id[]'))):
+                ep_id = int(request.form.getlist('episode_id[]')[i])
+                for ep in episodes:
+                    if ep['message_id'] == ep_id:
+                        ep['stream_link'] = request.form.getlist('episode_stream_link[]')[i]
+                        ep['download_link'] = request.form.getlist('episode_download_link[]')[i]
+                        break
+            update_data['episodes'] = episodes
+        else:
+            update_data["watch_link"] = request.form.get("watch_link", "")
+        movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data})
+        return redirect(url_for('admin'))
+    return render_template_string(edit_html, movie=movie_obj)
 
 @app.route('/delete_movie/<movie_id>')
 def delete_movie(movie_id):
-    # Admin Panel রুট অপরিবর্তিত
-    pass
+    movies.delete_one({"_id": ObjectId(movie_id)})
+    return redirect(url_for('admin'))
 
 @app.route('/contact', methods=['GET', 'POST'])
 def contact():
-    # Admin Panel রুট অপরিবর্তিত
-    pass
-
+    if request.method == 'POST':
+        feedback_data = {"type": request.form.get("type"), "content_title": request.form.get("content_title"), "message": request.form.get("message"), "email": request.form.get("email", "").strip(), "reported_content_id": request.form.get("reported_content_id"), "timestamp": datetime.utcnow()}
+        feedback.insert_one(feedback_data)
+        return render_template_string(contact_html, message_sent=True)
+    prefill_title, prefill_id = request.args.get('title', ''), request.args.get('report_id', '')
+    prefill_type = 'Problem Report' if prefill_id else 'Movie Request'
+    return render_template_string(contact_html, message_sent=False, prefill_title=prefill_title, prefill_id=prefill_id, prefill_type=prefill_type)
+    
 @app.route('/delete_feedback/<feedback_id>')
 def delete_feedback(feedback_id):
-    # Admin Panel রুট অপরিবর্তিত
-    pass
+    feedback.delete_one({"_id": ObjectId(feedback_id)})
+    return redirect(url_for('admin'))
 
 # ======================================================================
 # --- অ্যাপ চালু করা ---
 # ======================================================================
 if __name__ == "__main__":
-    # Gunicorn বা অন্য কোনো প্রোডাকশন সার্ভার ব্যবহার করলে এই ব্লকটি চলবে না।
-    # এটি শুধুমাত্র `python app.py` দিয়ে লোকাল ডেভেলপমেন্টের জন্য।
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
