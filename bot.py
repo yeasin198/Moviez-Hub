@@ -52,6 +52,7 @@ except Exception as e:
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
+# (এখানে আপনার সম্পূর্ণ HTML কোডগুলো থাকবে। আগের উত্তর থেকে কপি করে নিন।)
 # ======================================================================
 index_html = """
 <!DOCTYPE html>
@@ -487,21 +488,27 @@ def recently_added_all(): return render_full_list(list(movies.find({"is_coming_s
 def handle_post(post):
     if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return
 
-    # কেস ১: পোস্টটি ফাইল-টু-লিঙ্ক বট থেকে এসেছে (এটি একটি রিপ্লাই)
-    if post.get('from', {}).get('username') == LINK_BOT_USERNAME and post.get('reply_to_message'):
+    from_username = post.get('from', {}).get('username')
+    
+    # কেস ১: পোস্টটি ফাইল-টু-লিঙ্ক বট থেকে এসেছে এবং এটি একটি রিপ্লাই
+    if from_username == LINK_BOT_USERNAME and post.get('reply_to_message'):
         original_message_id = post['reply_to_message']['message_id']
-        caption = post.get('text', '')
-        stream_link, download_link = parse_links_from_caption(caption)
+        caption_text = post.get('text', '')
+        stream_link, download_link = parse_links_from_caption(caption_text)
         
         if stream_link or download_link:
             update_fields = {}
             if stream_link: update_fields.update({"files.$.stream_link": stream_link, "episodes.$.stream_link": stream_link})
             if download_link: update_fields.update({"files.$.download_link": download_link, "episodes.$.download_link": download_link})
             
-            movies.update_one(
+            result = movies.update_one(
                 {"$or": [{"files.message_id": original_message_id}, {"episodes.message_id": original_message_id}]},
                 {"$set": update_fields}
             )
+            if result.modified_count > 0: print(f"SUCCESS: Updated links for original message_id: {original_message_id}")
+            else: print(f"WARNING: Links parsed but no matching document found for message_id: {original_message_id}")
+        else:
+            print(f"WARNING: Could not parse links from bot reply for message_id: {original_message_id}")
 
     # কেস ২: পোস্টটি অ্যাডমিন করেছে (নতুন ফাইল)
     else:
@@ -533,15 +540,15 @@ def handle_post(post):
             )
         try:
             requests.post(f"{TELEGRAM_API_URL}/forwardMessage", json={'chat_id': f'@{LINK_BOT_USERNAME}', 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id})
-        except Exception as e:
-            print(f"Error forwarding to link bot: {e}")
+        except Exception as e: print(f"Error forwarding to link bot: {e}")
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
-    if 'channel_post' in data: handle_post(data['channel_post'])
-    elif 'edited_channel_post' in data: handle_post(data['edited_channel_post'])
-    elif 'message' in data:
+    post = data.get('channel_post') or data.get('edited_channel_post')
+    if post:
+        handle_post(post)
+    elif 'message' in data: # /start কমান্ড হ্যান্ডলিং
         message = data['message']
         chat_id = message['chat']['id']
         text = message.get('text', '')
