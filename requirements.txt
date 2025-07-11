@@ -1,8 +1,7 @@
-Flask
+flask
 requests
-gunicorn
 pymongo
-Jinja2
-pyrogram
-TgCrypto
 apscheduler
+gunicorn
+pyrogram
+tgcrypto
