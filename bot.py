@@ -87,13 +87,14 @@ def delete_message_after_delay(chat_id, message_id):
     except Exception as e:
         print(f"Error in delete_message_after_delay: {e}")
 
-# সিডিউলার তৈরি এবং চালু করা
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.start()
 
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
+# (HTML টেমপ্লেটগুলো আগের মতোই থাকবে, তাই এখানে পুনরায় যোগ করা হলো না। 
+# আপনার কাছে থাকা detail_html এবং অন্যান্য HTML কোডগুলো অপরিবর্তিত রাখুন।)
 # ======================================================================
 index_html = """
 <!DOCTYPE html>
@@ -354,9 +355,12 @@ function loadVideo(contentId, contentType, quality, season, episode) {
     playerContainer.style.display = 'block';
     playerContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
     player.stop();
+    
+    // Show a loading state in the player
+    const episodeTitle = contentType === 'series' ? ` S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}` : '';
     player.source = {
         type: 'video',
-        title: 'Loading...',
+        title: `Loading: {{ movie.title }}${episodeTitle}...`,
         sources: []
     };
 
@@ -368,27 +372,37 @@ function loadVideo(contentId, contentType, quality, season, episode) {
     }
 
     fetch(apiUrl)
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                // Get error message from JSON response
+                return response.json().then(err => { throw new Error(err.error || 'Server responded with an error'); });
+            }
+            return response.json();
+        })
         .then(data => {
             if(data.stream_link) {
                 player.source = {
                     type: 'video',
-                    title: '{{ movie.title }}' + (contentType === 'series' ? ` S${season}E${episode}` : ''),
+                    title: `{{ movie.title }}${episodeTitle}`,
                     sources: [{
                         src: data.stream_link,
-                        type: 'video/mp4', // Adjust if you have other formats
+                        type: 'video/mp4',
                     }],
                 };
                 player.play();
             } else {
-                alert('Error: ' + (data.error || 'Could not load video.'));
-                playerContainer.style.display = 'none';
+                // This case should ideally not be reached if the response handling above is correct
+                throw new Error('Stream link not found in the response.');
             }
         })
         .catch(err => {
-            console.error('Fetch Error:', err);
-            alert('A critical error occurred while trying to load the video.');
-            playerContainer.style.display = 'none';
+            console.error('Error loading video:', err);
+            alert(`Failed to load video. Reason: ${err.message}`);
+            player.source = {
+                type: 'video',
+                title: `Error: Could not load video.`,
+                sources: []
+            };
         });
 }
 document.querySelectorAll('.carousel-arrow').forEach(button => { button.addEventListener('click', () => { const carousel = button.closest('.carousel-wrapper').querySelector('.carousel-content'); const scrollAmount = carousel.clientWidth * 0.8; carousel.scrollLeft += button.classList.contains('next') ? scrollAmount : -scrollAmount; }); });
@@ -660,7 +674,7 @@ def get_stream_link(content_id, content_type, details):
     try:
         content = movies.find_one({"_id": ObjectId(content_id)})
         if not content:
-            return jsonify({"error": "Content not found"}), 404
+            return jsonify({"error": "Content not found in our database."}), 404
 
         target_file_id = None
         if content_type == 'movie':
@@ -676,18 +690,31 @@ def get_stream_link(content_id, content_type, details):
                 if target_episode:
                     target_file_id = target_episode.get('file_id')
             except (ValueError, IndexError):
-                 return jsonify({"error": "Invalid series details format"}), 400
+                 return jsonify({"error": "Invalid series details format."}), 400
 
         if not target_file_id:
-            return jsonify({"error": "Requested file or episode not found"}), 404
+            return jsonify({"error": "This file/episode is not available for streaming. Please check if a file_id exists in the database."}), 404
         
         # Get temporary file link from Telegram
         get_file_url = f"{TELEGRAM_API_URL}/getFile?file_id={target_file_id}"
-        res = requests.get(get_file_url, timeout=10)
-        res_data = res.json()
+        
+        try:
+            res = requests.get(get_file_url, timeout=15)
+            res.raise_for_status()  # HTTP error থাকলে exception raise করবে
+            res_data = res.json()
+        except requests.exceptions.Timeout:
+            print("Error: Telegram API call timed out.")
+            return jsonify({"error": "Connection to Telegram timed out. Please try again later."}), 504
+        except requests.exceptions.RequestException as e:
+            print(f"Error: Network error calling Telegram API: {e}")
+            return jsonify({"error": "A network error occurred while contacting Telegram."}), 502
 
         if not res_data.get('ok'):
-            return jsonify({"error": "Could not retrieve file from Telegram. It might be deleted."}), 502
+            error_description = res_data.get('description', 'Unknown error.')
+            print(f"Error from Telegram API: {error_description}")
+            if 'file is too big' in error_description:
+                 return jsonify({"error": "This file is too large to be streamed directly via the Bot API."}), 400
+            return jsonify({"error": f"Telegram Error: {error_description}"}), 502
 
         file_path = res_data['result']['file_path']
         stream_link = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
@@ -695,8 +722,8 @@ def get_stream_link(content_id, content_type, details):
         return jsonify({"stream_link": stream_link})
 
     except Exception as e:
-        print(f"Error in get_stream_link: {e}")
-        return jsonify({"error": "An internal server error occurred"}), 500
+        print(f"CRITICAL Error in get_stream_link: {e}")
+        return jsonify({"error": "An unexpected internal server error occurred."}), 500
 
 
 @app.route('/admin', methods=["GET", "POST"])
@@ -802,11 +829,12 @@ def telegram_webhook():
         if not (file and file.get('file_name')):
             return jsonify(status='ok', reason='no_file_in_post')
 
-        filename = file.get('file_name')
-        file_id = file.get('file_id') # <<<--- নতুন: file_id গ্রহণ করা
+        file_id = file.get('file_id')
         if not file_id:
-             return jsonify(status='ok', reason='no_file_id_in_post')
+            print(f"Webhook FATAL: file_id not found in post for file '{file.get('file_name')}'. Skipping.")
+            return jsonify(status='ok', reason='no_file_id_in_post')
 
+        filename = file.get('file_name')
         parsed_info = parse_filename(filename)
         quality_match = re.search(r'(\d{3,4})p', filename, re.IGNORECASE)
         quality = quality_match.group(1) + "p" if quality_match else "HD"
@@ -819,8 +847,6 @@ def telegram_webhook():
         tmdb_id = tmdb_data.get("tmdb_id")
 
         if parsed_info['type'] == 'series':
-            existing_series = movies.find_one({"tmdb_id": tmdb_id})
-            # <<<--- নতুন: file_id সহ এপিসোড ডকুমেন্ট তৈরি
             new_episode = {
                 "season": parsed_info['season'], 
                 "episode_number": parsed_info['episode'], 
@@ -828,41 +854,42 @@ def telegram_webhook():
                 "file_id": file_id, 
                 "quality": quality
             }
-            if existing_series:
-                # একই পর্ব থাকলে সেটাকে রিপ্লেস করা
-                movies.update_one(
-                    {"_id": existing_series['_id']}, 
-                    {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}}
-                )
-                movies.update_one(
-                    {"_id": existing_series['_id']}, 
-                    {"$push": {"episodes": new_episode}}
-                )
-                print(f"Webhook: Updated series '{existing_series['title']}'.")
-            else:
+            # Find existing series or create a new one
+            result = movies.update_one(
+                {"tmdb_id": tmdb_id},
+                {"$push": {"episodes": new_episode}},
+            )
+            if result.matched_count == 0: # If no document was found to update, insert a new one
                 series_doc = {**tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False, "episodes": [new_episode]}
                 movies.insert_one(series_doc)
                 print(f"Webhook: Created new series '{tmdb_data.get('title')}'.")
+            else:
+                # To avoid duplicates, first pull any existing episode with the same S/E number, then push the new one.
+                movies.update_one(
+                    {"tmdb_id": tmdb_id}, 
+                    {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number'], "file_id": {"$ne": file_id}}}}
+                )
+                print(f"Webhook: Updated series '{tmdb_data.get('title')}'.")
         
         else: # type == 'movie'
-            existing_movie = movies.find_one({"tmdb_id": tmdb_id})
-            # <<<--- নতুন: file_id সহ ফাইল ডকুমেন্ট তৈরি
             new_file = {"quality": quality, "message_id": post['message_id'], "file_id": file_id}
-            if existing_movie:
-                # একই কোয়ালিটির ফাইল থাকলে সেটাকে রিপ্লেস করা
-                movies.update_one(
-                    {"_id": existing_movie['_id']}, 
-                    {"$pull": {"files": {"quality": new_file['quality']}}}
-                )
-                movies.update_one(
-                    {"_id": existing_movie['_id']}, 
-                    {"$push": {"files": new_file}}
-                )
-                print(f"Webhook: Updated movie '{existing_movie['title']}' with new quality.")
-            else:
+            # Find existing movie or create a new one
+            result = movies.update_one(
+                {"tmdb_id": tmdb_id},
+                {"$push": {"files": new_file}},
+            )
+            if result.matched_count == 0:
                 movie_doc = {**tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False, "files": [new_file]}
                 movies.insert_one(movie_doc)
                 print(f"Webhook: Created new movie '{tmdb_data.get('title')}'.")
+            else:
+                 # To avoid duplicates, first pull any existing file with the same quality, then push the new one.
+                movies.update_one(
+                    {"tmdb_id": tmdb_id},
+                    {"$pull": {"files": {"quality": new_file['quality'], "file_id": {"$ne": file_id}}}}
+                )
+                print(f"Webhook: Updated movie '{tmdb_data.get('title')}' with new quality.")
+
 
     elif 'message' in data:
         message = data['message']
@@ -897,19 +924,12 @@ def telegram_webhook():
                         if res_json.get('ok'):
                             new_message_id = res_json['result']['message_id']
                             run_time = datetime.now() + timedelta(minutes=30)
-                            
                             scheduler.add_job(
-                                func=delete_message_after_delay,
-                                trigger='date',
-                                run_date=run_time,
-                                args=[chat_id, new_message_id],
-                                id=f'delete_{chat_id}_{new_message_id}',
-                                replace_existing=True
+                                func=delete_message_after_delay, trigger='date', run_date=run_time,
+                                args=[chat_id, new_message_id], id=f'delete_{chat_id}_{new_message_id}', replace_existing=True
                             )
-                            print(f"Scheduled message {new_message_id} for deletion in chat {chat_id} at {run_time}")
                         else:
-                             print(f"Failed to copy message: {res.text}")
-                             requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file. It might have been deleted."})
+                             requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file. It might have been deleted from the channel."})
                     else:
                         requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Requested file/quality not found."})
                 except Exception as e:
@@ -921,18 +941,5 @@ def telegram_webhook():
     return jsonify(status='ok')
 
 if __name__ == "__main__":
-    # For local development, create dummy env vars if they don't exist
-    if not all(value for name, value in required_vars.items()):
-        print("WARNING: Some environment variables are missing. Using dummy values for local run.")
-        print("This will NOT work in production. Please set environment variables.")
-        MONGO_URI = MONGO_URI or "mongodb://localhost:27017/movie_db"
-        BOT_TOKEN = BOT_TOKEN or "YOUR_BOT_TOKEN"
-        TMDB_API_KEY = TMDB_API_KEY or "YOUR_TMDB_API_KEY"
-        ADMIN_CHANNEL_ID = ADMIN_CHANNEL_ID or "-100..."
-        BOT_USERNAME = BOT_USERNAME or "YourBotUsername"
-        ADMIN_USERNAME = ADMIN_USERNAME or "admin"
-        ADMIN_PASSWORD = ADMIN_PASSWORD or "password"
-        TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-    
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
