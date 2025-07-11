@@ -71,7 +71,7 @@ index_html = """
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>MovieFlix9u - Your Entertainment Hub</title>
+<title>Moviez Hub - Your Entertainment Hub</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
   :root {
@@ -293,7 +293,7 @@ index_html = """
 </head>
 <body>
 <header class="main-nav">
-  <a href="{{ url_for('home') }}" class="logo">MovieFlix9u</a>
+  <a href="{{ url_for('home') }}" class="logo">Moviez Hub</a>
   <form method="GET" action="/" class="search-form">
     <input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" />
   </form>
@@ -416,7 +416,7 @@ genres_html = """
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>{{ title }} - MovieFlix9u</title>
+<title>{{ title }} - Moviez Hub</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
   :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; }
@@ -485,7 +485,7 @@ detail_html = """
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>{{ movie.title if movie else "Content Not Found" }} - MovieFlix9u</title>
+<title>{{ movie.title if movie else "Content Not Found" }} - Moviez Hub</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
   :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; }
@@ -642,7 +642,7 @@ admin_html = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Admin Panel - MovieFlix9u</title><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin Panel - Moviez Hub</title><meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root { --netflix-red: #E50914; --netflix-black: #141414; --dark-gray: #222; --light-gray: #333; --text-light: #f5f5f5; }
     body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); padding: 20px; }
@@ -725,7 +725,7 @@ edit_html = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Edit Content - MovieFlix9u</title><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Edit Content - Moviez Hub</title><meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root { --netflix-red: #E50914; --netflix-black: #141414; --dark-gray: #222; --light-gray: #333; --text-light: #f5f5f5; }
     body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); padding: 20px; }
@@ -796,7 +796,7 @@ contact_html = """
 <!DOCTYPE html>
 <html lang="bn">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Contact Us / Report - MovieFlix9u</title>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Contact Us / Report - Moviez Hub</title>
     <style>
         :root { --netflix-red: #E50914; --netflix-black: #141414; --dark-gray: #222; --light-gray: #333; --text-light: #f5f5f5; }
         body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
