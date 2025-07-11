@@ -10,6 +10,7 @@ from functools import wraps
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from pyrogram import Client
+from threading import Thread
 
 # ======================================================================
 # --- এনভায়রনমেন্ট ভেরিয়েবল লোড ও ভেরিফাই ---
@@ -46,11 +47,11 @@ app = Flask(__name__)
 pyro_client = Client("user_session", api_id=int(API_ID), api_hash=API_HASH, session_string=SESSION_STRING)
 
 try:
-    client = MongoClient(MONGO_URI)
-    db = client["movie_db"]
-    movies = db["movies"]
-    settings = db["settings"]
-    feedback = db["feedback"]
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    db = client.get_database("movie_db")
+    movies = db.get_collection("movies")
+    settings = db.get_collection("settings")
+    feedback = db.get_collection("feedback")
     print("SUCCESS: Successfully connected to MongoDB!")
 except Exception as e:
     print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
@@ -176,7 +177,7 @@ detail_html = """
   .stream-options, .download-section, .episode-section { margin-top: 30px; }
   .stream-btn, .download-button, .episode-button { display: inline-block; padding: 10px 20px; background-color: #444; color: white; text-decoration: none; border: none; border-radius: 4px; font-weight: 700; transition: background-color 0.3s ease; margin-right: 10px; margin-bottom: 10px; text-align: center; vertical-align: middle; cursor:pointer; }
   .stream-btn { background-color: var(--netflix-red); } .episode-button.telegram { background-color: #2AABEE; }
-  .season-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #333; }
+  .season-tabs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #333; }
   .season-tab-btn { background: none; border: none; color: var(--text-dark); padding: 10px 15px; cursor: pointer; font-size: 1rem; font-weight: 700; border-bottom: 3px solid transparent; }
   .season-tab-btn.active { color: var(--text-light); border-bottom-color: var(--netflix-red); }
   .season-content { display: none; } .season-content.active { display: block; }
@@ -251,16 +252,13 @@ detail_html = """
         player.stop();
         const episodeTitle = contentType === 'series' ? ` S${details.split('_')[0].padStart(2, '0')}E${details.split('_')[1].padStart(2, '0')}` : ` (${details})`;
         player.source = { type: 'video', title: `Loading: {{ movie.title }}${episodeTitle}...`, sources: [] };
-        
-        // This is the direct streaming URL
         const streamUrl = `/stream/${contentId}/${contentType}/${details}`;
-        
         player.source = {
             type: 'video',
             title: `{{ movie.title }}${episodeTitle}`,
             sources: [{ src: streamUrl, type: 'video/mp4' }]
         };
-        player.play().catch(e => alert(`Player Error: ${e.message}`));
+        player.play().catch(e => alert(`Player Error: Could not play video. Check browser console for more details.`));
     }
 </script>
 </body>
@@ -376,18 +374,19 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 </div></body></html>
 """
 
+
 # ======================================================================
 # --- Helper Functions and Authentication ---
 # ======================================================================
 def check_auth(username, password): return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 def authenticate(): return Response('Could not verify your access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
-def requires_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
+@wraps(app.before_request)
+def requires_auth_wrapper():
+    if request.endpoint and request.endpoint.startswith('admin'):
         auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password): return authenticate()
-        return f(*args, **kwargs)
-    return decorated
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+
 def parse_filename(filename):
     cleaned_name = filename.replace('.', ' ').replace('_', ' ')
     base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|pack|complete|final|dual audio|hindi|season).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
@@ -399,6 +398,7 @@ def parse_filename(filename):
     movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', base_name, re.IGNORECASE)
     if movie_match: return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip()}
     return {'type': 'movie', 'title': base_name, 'year': None}
+
 def get_tmdb_details_from_api(title, content_type, year=None):
     if not TMDB_API_KEY: return None
     search_type = "tv" if content_type == "series" else "movie"
@@ -412,10 +412,27 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         res = requests.get(detail_url, timeout=5).json()
         return { "tmdb_id": tmdb_id, "title": res.get("title") if search_type == "movie" else res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "overview": res.get("overview"), "release_date": res.get("release_date") if search_type == "movie" else res.get("first_air_date"), "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average") }
     except requests.RequestException as e: print(f"TMDb API error for '{title}': {e}"); return None
+
 def process_movie_list(movie_list):
+    processed = []
     for item in movie_list:
         if '_id' in item: item['_id'] = str(item['_id'])
-    return movie_list
+        processed.append(item)
+    return processed
+
+@app.context_processor
+def inject_ads_and_bot_username():
+    ad_codes = settings.find_one()
+    return dict(ad_settings=(ad_codes or {}), bot_username=BOT_USERNAME)
+
+def delete_message_after_delay(chat_id, message_id):
+    try:
+        requests.post(f"{TELEGRAM_API_URL}/deleteMessage", json={'chat_id': chat_id, 'message_id': message_id})
+    except Exception as e:
+        print(f"Error in delete_message_after_delay: {e}")
+
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.start()
 
 # ======================================================================
 # --- Main Flask Routes ---
@@ -439,11 +456,13 @@ def home():
 
 @app.route('/movie/<movie_id>')
 def movie_detail(movie_id):
-    movie = movies.find_one({"_id": ObjectId(movie_id)})
-    if not movie: return "Content not found", 404
-    related_movies = []
-    if movie.get("genres"): related_movies = list(movies.find({"genres": {"$in": movie["genres"]}, "_id": {"$ne": ObjectId(movie_id)}}).limit(12))
-    return render_template_string(detail_html, movie=movie, related_movies=process_movie_list(related_movies))
+    try:
+        movie = movies.find_one({"_id": ObjectId(movie_id)})
+        if not movie: return "Content not found", 404
+        related_movies = []
+        if movie.get("genres"): related_movies = list(movies.find({"genres": {"$in": movie["genres"]}, "_id": {"$ne": ObjectId(movie_id)}}).limit(12))
+        return render_template_string(detail_html, movie=movie, related_movies=process_movie_list(related_movies))
+    except Exception as e: return f"An error occurred: {e}", 500
 
 def render_full_list(content_list, title): return render_template_string(index_html, movies=process_movie_list(content_list), query=title, is_full_page_list=True)
 @app.route('/badge/<badge_name>')
@@ -486,9 +505,11 @@ def stream_file_route(content_id, content_type, details):
         if not target_message_id: return "File/episode message_id not found in database.", 404
 
         async def generate_chunks():
-            async with pyro_client:
+            try:
                 async for chunk in stream_generator_async(int(ADMIN_CHANNEL_ID), int(target_message_id)):
                     yield chunk
+            except Exception as e:
+                print(f"Error during async generation: {e}")
         
         return Response(stream_with_context(generate_chunks()), mimetype="video/mp4")
     except Exception as e:
@@ -527,17 +548,11 @@ def telegram_webhook():
                     upsert=True,
                     set_on_insert={**tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False}
                 )
-        else: # Movie
+        else:
             new_file = {"quality": quality, "message_id": message_id}
-            existing = movies.find_one_and_update(
-                {"tmdb_id": tmdb_id, "files.quality": new_file['quality']},
-                {"$set": {"files.$": new_file}}
-            )
+            existing = movies.find_one_and_update({"tmdb_id": tmdb_id, "files.quality": new_file['quality']},{"$set": {"files.$": new_file}})
             if not existing:
-                movies.find_one_and_update(
-                    {"tmdb_id": tmdb_id},
-                    {"$push": {"files": new_file}},
-                    upsert=True,
+                movies.find_one_and_update({"tmdb_id": tmdb_id},{"$push": {"files": new_file}},upsert=True,
                     set_on_insert={**tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False}
                 )
 
@@ -553,7 +568,6 @@ def telegram_webhook():
                     doc_id_str = payload_parts[0]
                     content = movies.find_one({"_id": ObjectId(doc_id_str)})
                     if not content: return jsonify(status='ok')
-
                     message_to_copy_id = None
                     if content.get('type') == 'series' and len(payload_parts) == 3:
                         s_num, e_num = int(payload_parts[1]), int(payload_parts[2])
@@ -575,7 +589,7 @@ def telegram_webhook():
 # --- Admin Panel Routes ---
 # ======================================================================
 @app.route('/admin', methods=["GET", "POST"])
-@requires_auth
+@requires_auth_wrapper
 def admin():
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
@@ -602,14 +616,14 @@ def admin():
     return render_template_string(admin_html, all_content=all_content, feedback_list=feedback_list)
 
 @app.route('/admin/save_ads', methods=['POST'])
-@requires_auth
+@requires_auth_wrapper
 def save_ads():
     ad_codes = {k: request.form.get(k, "") for k in ["popunder_code", "social_bar_code", "banner_ad_code", "native_banner_code"]}
     settings.update_one({}, {"$set": ad_codes}, upsert=True)
     return redirect(url_for('admin'))
 
 @app.route('/edit_movie/<movie_id>', methods=["GET", "POST"])
-@requires_auth
+@requires_auth_wrapper
 def edit_movie(movie_id):
     movie_obj = movies.find_one({"_id": ObjectId(movie_id)})
     if not movie_obj: return "Movie not found", 404
@@ -636,7 +650,7 @@ def edit_movie(movie_id):
     return render_template_string(edit_html, movie=movie_obj)
 
 @app.route('/delete_movie/<movie_id>')
-@requires_auth
+@requires_auth_wrapper
 def delete_movie(movie_id):
     movies.delete_one({"_id": ObjectId(movie_id)})
     return redirect(url_for('admin'))
@@ -652,12 +666,39 @@ def contact():
     return render_template_string(contact_html, message_sent=False, prefill_title=prefill_title, prefill_id=prefill_id, prefill_type=prefill_type)
     
 @app.route('/delete_feedback/<feedback_id>')
-@requires_auth
+@requires_auth_wrapper
 def delete_feedback(feedback_id):
     feedback.delete_one({"_id": ObjectId(feedback_id)})
     return redirect(url_for('admin'))
 
 
+# ======================================================================
+# --- অ্যাপ এবং Pyrogram ক্লায়েন্ট চালু করা ---
+# ======================================================================
+async def main():
+    # Pyrogram ক্লায়েন্টকে এখানে চালু করা হচ্ছে
+    await pyro_client.start()
+    print("Pyrogram client started successfully.")
+    
+    # Flask অ্যাপটি একটি পৃথক থ্রেডে চালানো হবে
+    flask_thread = Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=False))
+    flask_thread.daemon = True
+    flask_thread.start()
+    print("Flask application thread started.")
+
+    # asyncio ইভেন্ট লুপকে চলমান রাখা
+    # এটি নিশ্চিত করে যে Pyrogram ক্লায়েন্ট সঠিকভাবে চলতে থাকবে
+    await asyncio.Event().wait()
+
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    try:
+        # async main ফাংশনটি চালানো হচ্ছে
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Shutting down...")
+    finally:
+        # অ্যাপ বন্ধ করার সময় Pyrogram ক্লায়েন্ট বন্ধ করা
+        if pyro_client.is_connected:
+            asyncio.run(pyro_client.stop())
+            print("Pyrogram client stopped.")
