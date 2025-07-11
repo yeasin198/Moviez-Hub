@@ -367,7 +367,7 @@ index_html = """
         <i class="fa-brands fa-telegram telegram-icon"></i>
         <h2>Join Our Telegram Channel</h2>
         <p>Get the latest movie updates, news, and direct download links right on your phone!</p>
-        <a href="https://t.me/MovieFlix9u" target="_blank" class="telegram-join-button">
+        <a href="https://t.me/Moviez_Hub_Official" target="_blank" class="telegram-join-button">
             <i class="fa-brands fa-telegram"></i> Join Main Channel
         </a>
     </div>
