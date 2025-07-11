@@ -328,16 +328,6 @@ button[type="submit"], .add-episode-btn { background: var(--netflix-red); color:
     <div class="form-group"><label>Poster URL:</label><input type="url" name="poster" value="{{ movie.poster or '' }}" /></div><div class="form-group"><label>Overview:</label><textarea name="overview">{{ movie.overview or '' }}</textarea></div>
     <div class="form-group"><label>Genres (comma separated):</label><input type="text" name="genres" value="{{ movie.genres|join(', ') if movie.genres else '' }}" /></div>
     <div class="form-group"><label>Poster Badge:</label><input type="text" name="poster_badge" value="{{ movie.poster_badge or '' }}" /></div>
-    <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleEpisodeFields()"><option value="movie" {% if movie.type == 'movie' %}selected{% endif %}>Movie</option><option value="series" {% if movie.type == 'series' %}selected{% endif %}>TV/Web Series</option></select></div>
-    <div id="movie_fields"><div class="form-group"><label>Watch Link:</label><input type="url" name="watch_link" value="{{ movie.watch_link or '' }}" /></div></div>
-    <div id="episode_fields" style="display: none;"><h3>Episodes</h3><div id="episodes_container">
-      {% if movie.type == 'series' and movie.episodes %}{% for ep in movie.episodes %}<div class="episode-item">
-        <input type="hidden" name="episode_id[]" value="{{ ep.message_id }}">
-        <div class="form-group"><label>Season {{ ep.season }} - Episode {{ ep.episode_number }}</label></div>
-        <div class="form-group"><label>Stream Link:</label><input type="url" name="episode_stream_link[]" value="{{ ep.stream_link or '' }}" /></div>
-        <div class="form-group"><label>Download Link:</label><input type="url" name="episode_download_link[]" value="{{ ep.download_link or '' }}" /></div>
-      </div>{% endfor %}{% endif %}</div>
-    </div>
     <hr style="margin: 20px 0;">
     <div class="form-group"><input type="checkbox" name="is_trending" value="true" {% if movie.is_trending %}checked{% endif %}><label style="display: inline-block;">Is Trending?</label></div>
     <div class="form-group"><input type="checkbox" name="is_coming_soon" value="true" {% if movie.is_coming_soon %}checked{% endif %}><label style="display: inline-block;">Is Coming Soon?</label></div>
@@ -487,8 +477,8 @@ def recently_added_all(): return render_full_list(list(movies.find({"is_coming_s
 # ======================================================================
 def handle_post(post):
     if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return
-    
-    # কেস ১: পোস্টটি ফাইল-টু-লিঙ্ক বট থেকে এসেছে
+
+    # কেস ১: পোস্টটি ফাইল-টু-লিঙ্ক বট থেকে এসেছে (এটি একটি রিপ্লাই)
     if post.get('from', {}).get('username') == LINK_BOT_USERNAME and post.get('reply_to_message'):
         original_message_id = post['reply_to_message']['message_id']
         caption = post.get('text', '')
@@ -503,7 +493,6 @@ def handle_post(post):
                 {"$or": [{"files.message_id": original_message_id}, {"episodes.message_id": original_message_id}]},
                 {"$set": update_fields}
             )
-            print(f"Updated links for original message_id: {original_message_id}")
 
     # কেস ২: পোস্টটি অ্যাডমিন করেছে (নতুন ফাইল)
     else:
@@ -521,14 +510,23 @@ def handle_post(post):
 
         if parsed_info['type'] == 'series':
             episode_data = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": message_id, "quality": quality}
-            movies.update_one({"tmdb_id": tmdb_data['tmdb_id']}, {"$push": {"episodes": episode_data}}, upsert=True, set_on_insert={**tmdb_data, "type": "series"})
-        else:
+            movies.update_one(
+                {"tmdb_id": tmdb_data['tmdb_id']},
+                {"$push": {"episodes": episode_data}, "$setOnInsert": {**tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False}},
+                upsert=True
+            )
+        else: # Movie
             file_data = {"quality": quality, "message_id": message_id}
-            movies.update_one({"tmdb_id": tmdb_data['tmdb_id']}, {"$push": {"files": file_data}}, upsert=True, set_on_insert={**tmdb_data, "type": "movie"})
+            movies.update_one(
+                {"tmdb_id": tmdb_data['tmdb_id']},
+                {"$push": {"files": file_data}, "$setOnInsert": {**tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False}},
+                upsert=True
+            )
 
         try:
             requests.post(f"{TELEGRAM_API_URL}/forwardMessage", json={'chat_id': f'@{LINK_BOT_USERNAME}', 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id})
-        except Exception as e: print(f"Error forwarding to link bot: {e}")
+        except Exception as e:
+            print(f"Error forwarding to link bot: {e}")
 
 
 @app.route('/webhook', methods=['POST'])
@@ -536,7 +534,7 @@ def telegram_webhook():
     data = request.get_json()
     if 'channel_post' in data: handle_post(data['channel_post'])
     elif 'edited_channel_post' in data: handle_post(data['edited_channel_post'])
-    elif 'message' in data: # /start কমান্ড হ্যান্ডলিং
+    elif 'message' in data:
         message = data['message']
         chat_id = message['chat']['id']
         text = message.get('text', '')
@@ -596,18 +594,6 @@ def edit_movie(movie_id):
     if not movie_obj: return "Movie not found", 404
     if request.method == "POST":
         update_data = {"title": request.form.get("title"), "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true", "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(), "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], "poster_badge": request.form.get("poster_badge", "").strip() or None}
-        if movie_obj['type'] == "series":
-            episodes = movie_obj.get('episodes', [])
-            for i in range(len(request.form.getlist('episode_id[]'))):
-                ep_id = int(request.form.getlist('episode_id[]')[i])
-                for ep in episodes:
-                    if ep['message_id'] == ep_id:
-                        ep['stream_link'] = request.form.getlist('episode_stream_link[]')[i]
-                        ep['download_link'] = request.form.getlist('episode_download_link[]')[i]
-                        break
-            update_data['episodes'] = episodes
-        else:
-            update_data["watch_link"] = request.form.get("watch_link", "")
         movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data})
         return redirect(url_for('admin'))
     return render_template_string(edit_html, movie=movie_obj)
