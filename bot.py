@@ -52,7 +52,6 @@ except Exception as e:
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
-# (এখানে আপনার সম্পূর্ণ HTML কোডগুলো থাকবে। আগের উত্তর থেকে কপি করে নিন।)
 # ======================================================================
 index_html = """
 <!DOCTYPE html>
@@ -391,14 +390,18 @@ def parse_filename_from_post(post):
     if movie_match: return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip()}
     return {'type': 'movie', 'title': cleaned_name, 'year': None}
 
-def parse_links_from_caption(caption):
+def parse_links_from_button(post):
     stream_link, download_link = None, None
-    stream_pattern = r"(?:stream|watch|play)[\s_]*link?[\s:]*=?\s*(https?://[^\s\"]+)"
-    download_pattern = r"download[\s_]*link?[\s:]*=?\s*(https?://[^\s\"]+)"
-    stream_match = re.search(stream_pattern, caption, re.IGNORECASE | re.MULTILINE)
-    if stream_match: stream_link = stream_match.group(1)
-    download_match = re.search(download_pattern, caption, re.IGNORECASE | re.MULTILINE)
-    if download_match: download_link = download_match.group(1)
+    if 'reply_markup' in post and 'inline_keyboard' in post['reply_markup']:
+        for row in post['reply_markup']['inline_keyboard']:
+            for button in row:
+                button_text = button.get('text', '').lower()
+                button_url = button.get('url')
+                if button_url:
+                    if 'stream' in button_text or 'watch' in button_text or 'play' in button_text:
+                        stream_link = button_url
+                    elif 'download' in button_text:
+                        download_link = button_url
     return stream_link, download_link
 
 def get_tmdb_details_from_api(title, content_type, year=None):
@@ -487,37 +490,38 @@ def recently_added_all(): return render_full_list(list(movies.find({"is_coming_s
 # ======================================================================
 def handle_post(post):
     if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return
-
-    from_username = post.get('from', {}).get('username')
     
-    # কেস ১: পোস্টটি ফাইল-টু-লিঙ্ক বট থেকে এসেছে এবং এটি একটি রিপ্লাই
-    if from_username == LINK_BOT_USERNAME and post.get('reply_to_message'):
-        original_message_id = post['reply_to_message']['message_id']
-        caption_text = post.get('text', '')
-        stream_link, download_link = parse_links_from_caption(caption_text)
-        
+    message_id = post.get('message_id')
+    
+    # কেস ১: পোস্টে বাটন যোগ হয়েছে (এটি একটি edited_channel_post)
+    if 'reply_markup' in post:
+        stream_link, download_link = parse_links_from_button(post)
         if stream_link or download_link:
             update_fields = {}
-            if stream_link: update_fields.update({"files.$.stream_link": stream_link, "episodes.$.stream_link": stream_link})
-            if download_link: update_fields.update({"files.$.download_link": download_link, "episodes.$.download_link": download_link})
+            if stream_link: update_fields["files.$[elem].stream_link"] = stream_link
+            if download_link: update_fields["files.$[elem].download_link"] = download_link
             
             result = movies.update_one(
-                {"$or": [{"files.message_id": original_message_id}, {"episodes.message_id": original_message_id}]},
-                {"$set": update_fields}
+                {"files.message_id": message_id},
+                {"$set": update_fields},
+                array_filters=[{"elem.message_id": message_id}]
             )
-            if result.modified_count > 0: print(f"SUCCESS: Updated links for original message_id: {original_message_id}")
-            else: print(f"WARNING: Links parsed but no matching document found for message_id: {original_message_id}")
-        else:
-            print(f"WARNING: Could not parse links from bot reply for message_id: {original_message_id}")
+            if result.modified_count == 0:
+                update_fields_series = {}
+                if stream_link: update_fields_series["episodes.$[elem].stream_link"] = stream_link
+                if download_link: update_fields_series["episodes.$[elem].download_link"] = download_link
+                movies.update_one(
+                    {"episodes.message_id": message_id},
+                    {"$set": update_fields_series},
+                    array_filters=[{"elem.message_id": message_id}]
+                )
 
-    # কেস ২: পোস্টটি অ্যাডমিন করেছে (নতুন ফাইল)
+    # কেস ২: নতুন ফাইল পোস্ট করা হয়েছে
     else:
         file = post.get('video') or post.get('document')
         if not file: return
-        
-        message_id = post.get('message_id')
+
         parsed_info = parse_filename_from_post(post)
-        
         tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
         if not tmdb_data or not tmdb_data.get("tmdb_id"): return
         
@@ -528,27 +532,23 @@ def handle_post(post):
             episode_data = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": message_id, "quality": quality}
             movies.update_one(
                 {"tmdb_id": tmdb_data['tmdb_id']},
-                {"$push": {"episodes": episode_data}, "$setOnInsert": {**tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False}},
+                {"$push": {"episodes": episode_data}, "$setOnInsert": {**tmdb_data, "type": "series"}},
                 upsert=True
             )
         else: # Movie
             file_data = {"quality": quality, "message_id": message_id}
             movies.update_one(
                 {"tmdb_id": tmdb_data['tmdb_id']},
-                {"$push": {"files": file_data}, "$setOnInsert": {**tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False}},
+                {"$push": {"files": file_data}, "$setOnInsert": {**tmdb_data, "type": "movie"}},
                 upsert=True
             )
-        try:
-            requests.post(f"{TELEGRAM_API_URL}/forwardMessage", json={'chat_id': f'@{LINK_BOT_USERNAME}', 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id})
-        except Exception as e: print(f"Error forwarding to link bot: {e}")
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
     post = data.get('channel_post') or data.get('edited_channel_post')
-    if post:
-        handle_post(post)
-    elif 'message' in data: # /start কমান্ড হ্যান্ডলিং
+    if post: handle_post(post)
+    elif 'message' in data:
         message = data['message']
         chat_id = message['chat']['id']
         text = message.get('text', '')
@@ -582,9 +582,8 @@ def admin():
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
         tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
-        movie_data = {"title": request.form.get("title"), "type": content_type, **tmdb_data, "is_trending": False, "is_coming_soon": False}
-        if content_type == "movie":
-            movie_data["watch_link"] = request.form.get("watch_link", "")
+        movie_data = {"title": request.form.get("title"), "type": content_type, **tmdb_data}
+        if content_type == "movie": movie_data["watch_link"] = request.form.get("watch_link", "")
         else:
             episodes = []
             for i in range(len(request.form.getlist('episode_number[]'))):
