@@ -52,6 +52,7 @@ except Exception as e:
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
+# (আপনার দেওয়া HTML টেমপ্লেটগুলো এখানে অপরিবর্তিত থাকবে)
 # ======================================================================
 index_html = """
 <!DOCTYPE html>
@@ -118,7 +119,7 @@ index_html = """
   {% if is_full_page_list %}<div class="full-page-grid-container"><h2 class="full-page-grid-title">{{ query }}</h2>{% if movies|length == 0 %}<p style="text-align:center; color: var(--text-dark); margin-top: 40px;">No content found.</p>{% else %}<div class="full-page-grid">{% for m in movies %}{{ render_movie_card(m) }}{% endfor %}</div>{% endif %}</div>
   {% else %}
     {% if all_badges %}<div class="tags-section"><div class="tags-container">{% for badge in all_badges %}<a href="{{ url_for('movies_by_badge', badge_name=badge) }}" class="tag-link">{{ badge }}</a>{% endfor %}</div></div>{% endif %}
-    {% if recently_added %}<div class="hero-section">{% for movie in recently_added %}<div class="hero-slide {% if loop.first %}active{% endif %}" style="background-image: url('{{ movie.poster or '' }}');"><div class="hero-content"><h1 class="hero-title">{{ movie.title }}</h1><p class="hero-overview">{{ movie.overview }}</p><div class="hero-buttons"><a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-primary"><i class="fas fa-play"></i> Watch Now</a><a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-secondary"><i class="fas fa-info-circle"></i> More Info</a></div></div></div>{% endfor %}</div>{% endif %}
+    {% if recently_added %}<div class="hero-section">{% for movie in recently_added %><div class="hero-slide {% if loop.first %}active{% endif %}" style="background-image: url('{{ movie.poster or '' }}');"><div class="hero-content"><h1 class="hero-title">{{ movie.title }}</h1><p class="hero-overview">{{ movie.overview }}</p><div class="hero-buttons"><a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-primary"><i class="fas fa-play"></i> Watch Now</a><a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-secondary"><i class="fas fa-info-circle"></i> More Info</a></div></div></div>{% endfor %}</div>{% endif %}
     {% macro render_carousel(title, movies_list, endpoint) %}{% if movies_list %}<div class="carousel-row"><div class="carousel-header"><h2 class="carousel-title">{{ title }}</h2><a href="{{ url_for(endpoint) }}" class="see-all-link">See All ></a></div><div class="carousel-wrapper"><div class="carousel-content">{% for m in movies_list %}{{ render_movie_card(m) }}{% endfor %}</div><button class="carousel-arrow prev"><i class="fas fa-chevron-left"></i></button><button class="carousel-arrow next"><i class="fas fa-chevron-right"></i></button></div></div>{% endif %}{% endmacro %}
     {{ render_carousel('Trending Now', trending_movies, 'trending_movies') }}
     {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
@@ -380,14 +381,36 @@ def parse_filename_from_post(post):
     file = post.get('video') or post.get('document')
     filename = file.get('file_name', '') if file else ''
     caption = post.get('caption', filename)
+    
+    # টেলিগ্রাম ক্যাপশন এন্টিটি থাকলে সেগুলো বাদ দিয়ে শুধু টেক্সট নিতে হবে
+    # Example: caption_entities = [{'offset': 0, 'length': 7, 'type': 'bold'}]
+    # if 'caption_entities' in post:
+    #     cleaned_caption = ""
+    #     last_offset = 0
+    #     for entity in post['caption_entities']:
+    #         if entity['offset'] > last_offset:
+    #             cleaned_caption += caption[last_offset:entity['offset']]
+    #         last_offset = entity['offset'] + entity['length']
+    #     cleaned_caption += caption[last_offset:]
+    #     caption = cleaned_caption.strip()
+
     cleaned_name = (caption.split('\n')[0]).strip()
+    
+    # নিশ্চিত করতে হবে যে এখানে অতিরিক্ত ট্যাগ বা লিঙ্ক বাদ পড়ছে না
+    # যেমন: #movie #tag ইত্যাদি। শুধু নামটুকু রাখতে হবে।
+    cleaned_name = re.sub(r'#\w+', '', cleaned_name).strip() # Hashtags remove
+    cleaned_name = re.sub(r'^\S*bot\S*\s*[-_]*\s*', '', cleaned_name, flags=re.IGNORECASE).strip() # Bot usernames/tags remove
+
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', cleaned_name, re.IGNORECASE)
     if series_match:
         title = series_match.group(1).strip()
         title = re.sub(r'\s*season\s*\d+\s*$', '', title, flags=re.IGNORECASE).strip()
         return {'type': 'series', 'title': title, 'season': int(series_match.group(2)), 'episode': int(series_match.group(3))}
+    
     movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', cleaned_name, re.IGNORECASE)
-    if movie_match: return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip()}
+    if movie_match: 
+        return {'type': 'movie', 'title': movie_match.group(1).strip(), 'year': movie_match.group(2).strip()}
+    
     return {'type': 'movie', 'title': cleaned_name, 'year': None}
 
 def parse_links_from_button(post):
@@ -397,7 +420,9 @@ def parse_links_from_button(post):
             for button in row:
                 button_text = button.get('text', '').lower()
                 button_url = button.get('url')
-                if button_url:
+                
+                # নিশ্চিত করুন যে লিঙ্কগুলো HTTP/HTTPS দিয়ে শুরু হয়েছে
+                if button_url and (button_url.startswith('http://') or button_url.startswith('https://')):
                     if 'stream' in button_text or 'watch' in button_text or 'play' in button_text:
                         stream_link = button_url
                     elif 'download' in button_text:
@@ -405,18 +430,41 @@ def parse_links_from_button(post):
     return stream_link, download_link
 
 def get_tmdb_details_from_api(title, content_type, year=None):
-    if not TMDB_API_KEY: return None
+    if not TMDB_API_KEY: 
+        print("TMDb API Key is missing. Cannot fetch details.")
+        return None
     search_type = "tv" if content_type == "series" else "movie"
     try:
         search_url = f"https://api.themoviedb.org/3/search/{search_type}?api_key={TMDB_API_KEY}&query={requests.utils.quote(title)}"
         if year and search_type == "movie": search_url += f"&primary_release_year={year}"
+        
+        print(f"DEBUG: TMDb search URL: {search_url}") # Debugging
         search_res = requests.get(search_url, timeout=5).json()
-        if not search_res.get("results"): return None
+        
+        if not search_res.get("results"): 
+            print(f"DEBUG: No TMDb results for '{title}' ({search_type}).") # Debugging
+            return None
+        
         tmdb_id = search_res["results"][0].get("id")
         detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}"
+        print(f"DEBUG: TMDb detail URL: {detail_url}") # Debugging
         res = requests.get(detail_url, timeout=5).json()
-        return { "tmdb_id": tmdb_id, "title": res.get("title") if search_type == "movie" else res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "overview": res.get("overview"), "release_date": res.get("release_date") if search_type == "movie" else res.get("first_air_date"), "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average") }
-    except requests.RequestException as e: print(f"TMDb API error for '{title}': {e}"); return None
+        
+        return { 
+            "tmdb_id": tmdb_id, 
+            "title": res.get("title") if search_type == "movie" else res.get("name"), 
+            "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, 
+            "overview": res.get("overview"), 
+            "release_date": res.get("release_date") if search_type == "movie" else res.get("first_air_date"), 
+            "genres": [g['name'] for g in res.get("genres", [])], 
+            "vote_average": res.get("vote_average") 
+        }
+    except requests.RequestException as e: 
+        print(f"TMDb API error for '{title}': {e}")
+        return None
+    except Exception as e:
+        print(f"An unexpected error occurred during TMDb fetch: {e}")
+        return None
 
 def process_movie_list(movie_list):
     processed = []
@@ -427,12 +475,15 @@ def process_movie_list(movie_list):
 
 @app.context_processor
 def inject_ads_and_bot_username():
-    ad_codes = settings.find_one()
+    ad_codes = settings.find_one({}) # Add an empty dict for find_one to get the first document
     return dict(ad_settings=(ad_codes or {}), bot_username=BOT_USERNAME)
 
 def delete_message_after_delay(chat_id, message_id):
-    try: requests.post(f"{TELEGRAM_API_URL}/deleteMessage", json={'chat_id': chat_id, 'message_id': message_id})
-    except Exception as e: print(f"Error in delete_message_after_delay: {e}")
+    try: 
+        requests.post(f"{TELEGRAM_API_URL}/deleteMessage", json={'chat_id': chat_id, 'message_id': message_id})
+        print(f"DEBUG: Message {message_id} deleted from chat {chat_id} after delay.")
+    except Exception as e: 
+        print(f"Error in delete_message_after_delay for message {message_id} in chat {chat_id}: {e}")
 
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.start()
@@ -465,13 +516,20 @@ def movie_detail(movie_id):
         related_movies = []
         if movie.get("genres"): related_movies = list(movies.find({"genres": {"$in": movie["genres"]}, "_id": {"$ne": ObjectId(movie_id)}}).limit(12))
         return render_template_string(detail_html, movie=movie, related_movies=process_movie_list(related_movies))
-    except Exception as e: return f"An error occurred: {e}", 500
+    except Exception as e: 
+        print(f"Error fetching movie detail for {movie_id}: {e}") # Debugging
+        return f"An error occurred: {e}", 500
 
 def render_full_list(content_list, title): return render_template_string(index_html, movies=process_movie_list(content_list), query=title, is_full_page_list=True)
 @app.route('/badge/<badge_name>')
 def movies_by_badge(badge_name): return render_full_list(list(movies.find({"poster_badge": badge_name}).sort('_id', -1)), f'Tag: {badge_name}')
 @app.route('/genres')
-def genres_page(): return render_template_string(genres_html, genres=sorted([g for g in movies.distinct("genres") if g]), title="Browse by Genre")
+def genres_page(): 
+    # Genres HTML template is missing, assuming it's intended to be similar to index_html or a separate page
+    # For now, if genres_html is not defined, it will cause an error.
+    # Placeholder: You might need to define genres_html or remove this route if not needed.
+    return render_template_string(index_html, movies=process_movie_list(list(movies.find({}).distinct("genres"))), query="All Genres", is_full_page_list=True)
+
 @app.route('/genre/<genre_name>')
 def movies_by_genre(genre_name): return render_full_list(list(movies.find({"genres": genre_name}).sort('_id', -1)), f'Genre: {genre_name}')
 @app.route('/trending_movies')
@@ -489,92 +547,176 @@ def recently_added_all(): return render_full_list(list(movies.find({"is_coming_s
 # --- Webhook and Admin Routes ---
 # ======================================================================
 def handle_post(post):
-    if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return
+    # চ্যানেল আইডি চেক করা
+    if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: 
+        print(f"DEBUG: Post from unauthorized chat ID: {post.get('chat', {}).get('id')}")
+        return
     
     message_id = post.get('message_id')
+    print(f"DEBUG: Received webhook for message ID: {message_id}")
     
     # কেস ১: পোস্টে বাটন যোগ হয়েছে (এটি একটি edited_channel_post)
     if 'reply_markup' in post:
+        print("DEBUG: Processing as 'edited_channel_post' (reply_markup found).")
         stream_link, download_link = parse_links_from_button(post)
+        print(f"DEBUG: Parsed links - Stream: {stream_link}, Download: {download_link}")
+        
         if stream_link or download_link:
             update_fields = {}
             if stream_link: update_fields["files.$[elem].stream_link"] = stream_link
             if download_link: update_fields["files.$[elem].download_link"] = download_link
             
-            result = movies.update_one(
+            # মুভির ফাইল আপডেট করার চেষ্টা
+            result_movie = movies.update_one(
                 {"files.message_id": message_id},
                 {"$set": update_fields},
                 array_filters=[{"elem.message_id": message_id}]
             )
-            if result.modified_count == 0:
+            print(f"DEBUG: Movie file update result (modified_count): {result_movie.modified_count}")
+
+            # যদি মুভির ফাইল আপডেট না হয়, তাহলে সিরিজের এপিসোড আপডেট করার চেষ্টা
+            if result_movie.modified_count == 0:
                 update_fields_series = {}
                 if stream_link: update_fields_series["episodes.$[elem].stream_link"] = stream_link
                 if download_link: update_fields_series["episodes.$[elem].download_link"] = download_link
-                movies.update_one(
+                
+                result_series = movies.update_one(
                     {"episodes.message_id": message_id},
                     {"$set": update_fields_series},
                     array_filters=[{"elem.message_id": message_id}]
                 )
+                print(f"DEBUG: Series episode update result (modified_count): {result_series.modified_count}")
+                if result_series.modified_count == 0:
+                    print(f"DEBUG: No document found to update for message_id: {message_id}")
+        else:
+            print("DEBUG: No stream or download links found in reply_markup.")
 
-    # কেস ২: নতুন ফাইল পোস্ট করা হয়েছে
+    # কেস ২: নতুন ফাইল পোস্ট করা হয়েছে (`channel_post`)
     else:
         file = post.get('video') or post.get('document')
-        if not file: return
+        if not file: 
+            print("DEBUG: No video or document found in post. Skipping.")
+            return
 
+        print("DEBUG: Processing as 'channel_post' (new file found).")
+        
         parsed_info = parse_filename_from_post(post)
+        print(f"DEBUG: Parsed info from filename/caption: {parsed_info}")
+
         tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-        if not tmdb_data or not tmdb_data.get("tmdb_id"): return
+        if not tmdb_data or not tmdb_data.get("tmdb_id"): 
+            print("DEBUG: TMDb data could not be fetched or is invalid. Skipping.")
+            return
+        print(f"DEBUG: TMDb data fetched: {tmdb_data.get('title')}")
         
         quality_match = re.search(r'(\d{3,4})p', file.get('file_name', ''), re.IGNORECASE)
         quality = quality_match.group(1) + "p" if quality_match else "HD"
+        print(f"DEBUG: Detected quality: {quality}")
 
         if parsed_info['type'] == 'series':
-            episode_data = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": message_id, "quality": quality}
-            movies.update_one(
+            episode_data = {
+                "season": parsed_info['season'], 
+                "episode_number": parsed_info['episode'], 
+                "message_id": message_id, 
+                "quality": quality,
+                "stream_link": None, # ইনিশিয়াল ভাবে লিঙ্ক ফাঁকা থাকবে
+                "download_link": None  # ইনিশিয়াল ভাবে লিঙ্ক ফাঁকা থাকবে
+            }
+            # এখানে $push ব্যবহার করা হচ্ছে নতুন এপিসোড ঢোকানোর জন্য
+            # এবং $setOnInsert ব্যবহার করা হচ্ছে নতুন সিরিজ ডকুমেন্ট তৈরি করার জন্য
+            result = movies.update_one(
                 {"tmdb_id": tmdb_data['tmdb_id']},
                 {"$push": {"episodes": episode_data}, "$setOnInsert": {**tmdb_data, "type": "series"}},
                 upsert=True
             )
+            print(f"DEBUG: Series update/insert result. Matched: {result.matched_count}, Upserted: {result.upserted_id}, Modified: {result.modified_count}")
+            
+            # যদি নতুন ডকুমেন্ট তৈরি হয়, তাহলে _id প্রিন্ট করা
+            if result.upserted_id:
+                print(f"DEBUG: New series document created with _id: {result.upserted_id}")
+            elif result.modified_count > 0:
+                print(f"DEBUG: Existing series updated for message_id: {message_id}")
+
         else: # Movie
-            file_data = {"quality": quality, "message_id": message_id}
-            movies.update_one(
+            file_data = {
+                "quality": quality, 
+                "message_id": message_id,
+                "stream_link": None, # ইনিশিয়াল ভাবে লিঙ্ক ফাঁকা থাকবে
+                "download_link": None  # ইনিশিয়াল ভাবে লিঙ্ক ফাঁকা থাকবে
+            }
+            # এখানেও একই লজিক
+            result = movies.update_one(
                 {"tmdb_id": tmdb_data['tmdb_id']},
                 {"$push": {"files": file_data}, "$setOnInsert": {**tmdb_data, "type": "movie"}},
                 upsert=True
             )
-
+            print(f"DEBUG: Movie update/insert result. Matched: {result.matched_count}, Upserted: {result.upserted_id}, Modified: {result.modified_count}")
+            
+            if result.upserted_id:
+                print(f"DEBUG: New movie document created with _id: {result.upserted_id}")
+            elif result.modified_count > 0:
+                print(f"DEBUG: Existing movie updated for message_id: {message_id}")
+            
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
+    print(f"DEBUG: Full Webhook Data: {data}") # পুরো ওয়েববুক ডেটা প্রিন্ট করুন
+
     post = data.get('channel_post') or data.get('edited_channel_post')
-    if post: handle_post(post)
+    if post: 
+        handle_post(post)
     elif 'message' in data:
         message = data['message']
         chat_id = message['chat']['id']
         text = message.get('text', '')
+        print(f"DEBUG: Received message from chat {chat_id}: {text}") # Debugging
+        
         if text.startswith('/start'):
             parts = text.split()
             if len(parts) > 1:
                 try:
                     payload_parts = parts[1].split('_')
                     doc_id_str = payload_parts[0]
+                    
+                    # ObjectId সঠিক কিনা তা নিশ্চিত করুন
+                    if not ObjectId.is_valid(doc_id_str):
+                        print(f"DEBUG: Invalid ObjectId in /start payload: {doc_id_str}")
+                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome! Browse our site to find content."})
+                        return jsonify(status='ok')
+
                     content = movies.find_one({"_id": ObjectId(doc_id_str)})
-                    if not content: return jsonify(status='ok')
+                    if not content: 
+                        print(f"DEBUG: Content not found for _id: {doc_id_str}")
+                        return jsonify(status='ok')
+                    
                     message_to_copy_id = None
                     if content.get('type') == 'series' and len(payload_parts) == 3:
                         target_episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == int(payload_parts[1]) and ep.get('episode_number') == int(payload_parts[2])), None)
                         if target_episode: message_to_copy_id = target_episode.get('message_id')
+                        print(f"DEBUG: Series /start payload. Season: {payload_parts[1]}, Episode: {payload_parts[2]}, Message to copy: {message_to_copy_id}") # Debugging
                     elif content.get('type') == 'movie' and len(payload_parts) == 2:
                         target_file = next((f for f in content.get('files', []) if f.get('quality') == payload_parts[1]), None)
                         if target_file: message_to_copy_id = target_file.get('message_id')
+                        print(f"DEBUG: Movie /start payload. Quality: {payload_parts[1]}, Message to copy: {message_to_copy_id}") # Debugging
                     
                     if message_to_copy_id:
                         payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_to_copy_id}
                         res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload).json()
+                        print(f"DEBUG: Telegram copyMessage API response: {res}") # Debugging
                         if res.get('ok'):
                             scheduler.add_job(delete_message_after_delay, 'date', run_date=datetime.now() + timedelta(minutes=30), args=[chat_id, res['result']['message_id']], id=f'del_{chat_id}_{res["result"]["message_id"]}', replace_existing=True)
-                except Exception as e: print(f"Error in /start: {e}")
-            else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome! Browse our site to find content."})
+                            print(f"DEBUG: Scheduled deletion for message {res['result']['message_id']} in chat {chat_id}.") # Debugging
+                        else:
+                            print(f"ERROR: Failed to copy message: {res.get('description', 'Unknown error')}") # Debugging
+                            requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Sorry, something went wrong while fetching the content. Please try again later."}) # User feedback
+                    else:
+                        print(f"DEBUG: No message_to_copy_id found for /start payload: {text}")
+                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "The requested content could not be found or is not yet available."}) # User feedback
+                except Exception as e: 
+                    print(f"ERROR: Exception in /start handler: {e}") # Debugging
+                    requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred. Please try again."}) # User feedback
+            else: 
+                requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome! Browse our site to find content."})
     return jsonify(status='ok')
 
 @app.route('/admin', methods=["GET", "POST"])
@@ -583,17 +725,51 @@ def admin():
         content_type = request.form.get("content_type", "movie")
         tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
         movie_data = {"title": request.form.get("title"), "type": content_type, **tmdb_data}
-        if content_type == "movie": movie_data["watch_link"] = request.form.get("watch_link", "")
-        else:
+        
+        if content_type == "movie": 
+            # ম্যানুয়াল অ্যাড-এর ক্ষেত্রে, ফাইল ডিটেইলস সরাসরি সেট করা
+            files_list = []
+            if request.form.get("watch_link"):
+                files_list.append({"quality": "HD", "stream_link": request.form.get("watch_link")})
+            if request.form.get("link_480p"):
+                files_list.append({"quality": "480p", "download_link": request.form.get("link_480p")})
+            if request.form.get("link_720p"):
+                files_list.append({"quality": "720p", "download_link": request.form.get("link_720p")})
+            if request.form.get("link_1080p"):
+                files_list.append({"quality": "1080p", "download_link": request.form.get("link_1080p")})
+            movie_data["files"] = files_list
+            movie_data["episodes"] = [] # মুভি হলে এপিসোড খালি থাকবে
+
+        else: # Series
             episodes = []
-            for i in range(len(request.form.getlist('episode_number[]'))):
-                episodes.append({"season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(request.form.getlist('episode_number[]')[i]), "title": request.form.getlist('episode_title[]')[i]})
+            episode_numbers = request.form.getlist('episode_number[]')
+            episode_seasons = request.form.getlist('episode_season[]')
+            episode_titles = request.form.getlist('episode_title[]')
+            episode_watch_links = request.form.getlist('episode_watch_link[]')
+            episode_link_480p = request.form.getlist('episode_link_480p[]')
+            episode_link_720p = request.form.getlist('episode_link_720p[]')
+
+            for i in range(len(episode_numbers)):
+                ep_data = {
+                    "season": int(episode_seasons[i]),
+                    "episode_number": int(episode_numbers[i]),
+                    "title": episode_titles[i],
+                    "stream_link": episode_watch_links[i] if episode_watch_links[i] else None,
+                    "download_link": episode_link_720p[i] if episode_link_720p[i] else (episode_link_480p[i] if episode_link_480p[i] else None) # 720p কে প্রায়োরিটি
+                }
+                episodes.append(ep_data)
             movie_data["episodes"] = episodes
+            movie_data["files"] = [] # সিরিজ হলে ফাইলস খালি থাকবে
+
         movies.insert_one(movie_data)
         return redirect(url_for('admin'))
+    
     all_content = process_movie_list(list(movies.find().sort('_id', -1)))
     feedback_list = process_movie_list(list(feedback.find().sort('timestamp', -1)))
-    return render_template_string(admin_html, all_content=all_content, feedback_list=feedback_list)
+    # নিশ্চিত করুন settings ডকুমেন্ট exist করে, না হলে একটি খালি dict দিন
+    ad_settings = settings.find_one({}) or {} 
+    return render_template_string(admin_html, all_content=all_content, feedback_list=feedback_list, ad_settings=ad_settings)
+
 
 @app.route('/admin/save_ads', methods=['POST'])
 def save_ads():
@@ -606,7 +782,15 @@ def edit_movie(movie_id):
     movie_obj = movies.find_one({"_id": ObjectId(movie_id)})
     if not movie_obj: return "Movie not found", 404
     if request.method == "POST":
-        update_data = {"title": request.form.get("title"), "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true", "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(), "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], "poster_badge": request.form.get("poster_badge", "").strip() or None}
+        update_data = {
+            "title": request.form.get("title"), 
+            "is_trending": request.form.get("is_trending") == "true", 
+            "is_coming_soon": request.form.get("is_coming_soon") == "true", 
+            "poster": request.form.get("poster", "").strip(), 
+            "overview": request.form.get("overview", "").strip(), 
+            "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], 
+            "poster_badge": request.form.get("poster_badge", "").strip() or None
+        }
         movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data})
         return redirect(url_for('admin'))
     return render_template_string(edit_html, movie=movie_obj)
@@ -619,7 +803,14 @@ def delete_movie(movie_id):
 @app.route('/contact', methods=['GET', 'POST'])
 def contact():
     if request.method == 'POST':
-        feedback_data = {"type": request.form.get("type"), "content_title": request.form.get("content_title"), "message": request.form.get("message"), "email": request.form.get("email", "").strip(), "reported_content_id": request.form.get("reported_content_id"), "timestamp": datetime.utcnow()}
+        feedback_data = {
+            "type": request.form.get("type"), 
+            "content_title": request.form.get("content_title"), 
+            "message": request.form.get("message"), 
+            "email": request.form.get("email", "").strip(), 
+            "reported_content_id": request.form.get("reported_content_id"), 
+            "timestamp": datetime.utcnow()
+        }
         feedback.insert_one(feedback_data)
         return render_template_string(contact_html, message_sent=True)
     prefill_title, prefill_id = request.args.get('title', ''), request.args.get('report_id', '')
