@@ -115,11 +115,11 @@ index_html = """
 <body>
 <header class="main-nav"><a href="{{ url_for('home') }}" class="logo">MovieZone</a><form method="GET" action="/" class="search-form"><input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" /></form></header>
 <main>
-  {% macro render_movie_card(m) %}<a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">{% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}<img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}"><div class="card-info-overlay"><h4 class="card-info-title">{{ m.title }}</h4></div></a>{% endmacro %}
+  {% macro render_movie_card(m) %}<a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">{% if m.poster_badge %><div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}<img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}"><div class="card-info-overlay"><h4 class="card-info-title">{{ m.title }}</h4></div></a>{% endmacro %}
   {% if is_full_page_list %}<div class="full-page-grid-container"><h2 class="full-page-grid-title">{{ query }}</h2>{% if movies|length == 0 %}<p style="text-align:center; color: var(--text-dark); margin-top: 40px;">No content found.</p>{% else %}<div class="full-page-grid">{% for m in movies %}{{ render_movie_card(m) }}{% endfor %}</div>{% endif %}</div>
   {% else %}
     {% if all_badges %}<div class="tags-section"><div class="tags-container">{% for badge in all_badges %}<a href="{{ url_for('movies_by_badge', badge_name=badge) }}" class="tag-link">{{ badge }}</a>{% endfor %}</div></div>{% endif %}
-    {% if recently_added %}<div class="hero-section">{% for movie in recently_added %><div class="hero-slide {% if loop.first %}active{% endif %}" style="background-image: url('{{ movie.poster or '' }}');"><div class="hero-content"><h1 class="hero-title">{{ movie.title }}</h1><p class="hero-overview">{{ movie.overview }}</p><div class="hero-buttons"><a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-primary"><i class="fas fa-play"></i> Watch Now</a><a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-secondary"><i class="fas fa-info-circle"></i> More Info</a></div></div></div>{% endfor %}</div>{% endif %}
+    {% if recently_added %}<div class="hero-section">{% for movie in recently_added %}<div class="hero-slide {% if loop.first %}active{% endif %}" style="background-image: url('{{ movie.poster or '' }}');"><div class="hero-content"><h1 class="hero-title">{{ movie.title }}</h1><p class="hero-overview">{{ movie.overview }}</p><div class="hero-buttons"><a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-primary"><i class="fas fa-play"></i> Watch Now</a><a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-secondary"><i class="fas fa-info-circle"></i> More Info</a></div></div></div>{% endfor %}</div>{% endif %}
     {% macro render_carousel(title, movies_list, endpoint) %}{% if movies_list %}<div class="carousel-row"><div class="carousel-header"><h2 class="carousel-title">{{ title }}</h2><a href="{{ url_for(endpoint) }}" class="see-all-link">See All ></a></div><div class="carousel-wrapper"><div class="carousel-content">{% for m in movies_list %}{{ render_movie_card(m) }}{% endfor %}</div><button class="carousel-arrow prev"><i class="fas fa-chevron-left"></i></button><button class="carousel-arrow next"><i class="fas fa-chevron-right"></i></button></div></div>{% endif %}{% endmacro %}
     {{ render_carousel('Trending Now', trending_movies, 'trending_movies') }}
     {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
@@ -190,7 +190,7 @@ detail_html = """
 </style>
 </head>
 <body>
-{% macro render_movie_card(m) %}<a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">{% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}<img class="movie-poster" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}"></a>{% endmacro %}
+{% macro render_movie_card(m) %}<a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">{% if m.poster_badge %><div class="poster-badge">{{ m.poster_badge }}</div>{% endif %><img class="movie-poster" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}"></a>{% endmacro %}
 <header class="detail-header"><a href="{{ url_for('home') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
 {% if movie %}
 <div class="detail-hero" style="min-height: auto; padding-bottom: 60px;">
@@ -548,120 +548,121 @@ def recently_added_all(): return render_full_list(list(movies.find({"is_coming_s
 # ======================================================================
 def handle_post(post):
     # চ্যানেল আইডি চেক করা
-    if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: 
-        print(f"DEBUG: Post from unauthorized chat ID: {post.get('chat', {}).get('id')}")
+    if str(post.get('chat', {}).get('id')) != str(ADMIN_CHANNEL_ID): # Changed to str(ADMIN_CHANNEL_ID) for comparison
+        print(f"DEBUG: Post from unauthorized chat ID: {post.get('chat', {}).get('id')}. Expected: {ADMIN_CHANNEL_ID}")
         return
     
     message_id = post.get('message_id')
     print(f"DEBUG: Received webhook for message ID: {message_id}")
     
-    # কেস ১: পোস্টে বাটন যোগ হয়েছে (এটি একটি edited_channel_post)
-    if 'reply_markup' in post:
-        print("DEBUG: Processing as 'edited_channel_post' (reply_markup found).")
-        stream_link, download_link = parse_links_from_button(post)
-        print(f"DEBUG: Parsed links - Stream: {stream_link}, Download: {download_link}")
+    # বাটন থেকে লিঙ্ক পার্স করার চেষ্টা (যদি থাকে)
+    stream_link, download_link = parse_links_from_button(post)
+    print(f"DEBUG: Parsed links - Stream: {stream_link}, Download: {download_link}")
+
+    # কেস ১: যদি পোস্টটি একটি `edited_channel_post` হয় এবং এতে লিঙ্ক থাকে
+    if 'edited_channel_post' in request.get_json() and (stream_link or download_link):
+        print("DEBUG: Processing as 'edited_channel_post' with links.")
+        update_fields = {}
+        if stream_link: update_fields["files.$[elem].stream_link"] = stream_link
+        if download_link: update_fields["files.$[elem].download_link"] = download_link
         
-        if stream_link or download_link:
-            update_fields = {}
-            if stream_link: update_fields["files.$[elem].stream_link"] = stream_link
-            if download_link: update_fields["files.$[elem].download_link"] = download_link
+        # মুভির ফাইল আপডেট করার চেষ্টা
+        result_movie = movies.update_one(
+            {"files.message_id": message_id},
+            {"$set": update_fields},
+            array_filters=[{"elem.message_id": message_id}]
+        )
+        print(f"DEBUG: Movie file update result (modified_count): {result_movie.modified_count}")
+
+        # যদি মুভির ফাইল আপডেট না হয়, তাহলে সিরিজের এপিসোড আপডেট করার চেষ্টা
+        if result_movie.modified_count == 0:
+            update_fields_series = {}
+            if stream_link: update_fields_series["episodes.$[elem].stream_link"] = stream_link
+            if download_link: update_fields_series["episodes.$[elem].download_link"] = download_link
             
-            # মুভির ফাইল আপডেট করার চেষ্টা
-            result_movie = movies.update_one(
-                {"files.message_id": message_id},
-                {"$set": update_fields},
+            result_series = movies.update_one(
+                {"episodes.message_id": message_id},
+                {"$set": update_fields_series},
                 array_filters=[{"elem.message_id": message_id}]
             )
-            print(f"DEBUG: Movie file update result (modified_count): {result_movie.modified_count}")
+            print(f"DEBUG: Series episode update result (modified_count): {result_series.modified_count}")
+            if result_series.modified_count == 0:
+                print(f"DEBUG: No existing document found to update for message_id: {message_id} with links in edited_channel_post.")
+        return # এডিট পোস্টের কাজ শেষ
 
-            # যদি মুভির ফাইল আপডেট না হয়, তাহলে সিরিজের এপিসোড আপডেট করার চেষ্টা
-            if result_movie.modified_count == 0:
-                update_fields_series = {}
-                if stream_link: update_fields_series["episodes.$[elem].stream_link"] = stream_link
-                if download_link: update_fields_series["episodes.$[elem].download_link"] = download_link
-                
-                result_series = movies.update_one(
-                    {"episodes.message_id": message_id},
-                    {"$set": update_fields_series},
-                    array_filters=[{"elem.message_id": message_id}]
-                )
-                print(f"DEBUG: Series episode update result (modified_count): {result_series.modified_count}")
-                if result_series.modified_count == 0:
-                    print(f"DEBUG: No document found to update for message_id: {message_id}")
-        else:
-            print("DEBUG: No stream or download links found in reply_markup.")
+    # কেস ২: যদি এটি একটি নতুন `channel_post` হয় অথবা `edited_channel_post` কিন্তু আগের লজিক কাজ না করে
+    # এবং এতে একটি ফাইল (ভিডিও/ডকুমেন্ট) থাকে
+    file = post.get('video') or post.get('document')
+    if not file: 
+        print("DEBUG: No video or document found in post. Skipping content creation/update.")
+        return
 
-    # কেস ২: নতুন ফাইল পোস্ট করা হয়েছে (`channel_post`)
-    else:
-        file = post.get('video') or post.get('document')
-        if not file: 
-            print("DEBUG: No video or document found in post. Skipping.")
-            return
+    print("DEBUG: Processing content creation/initial update for new file.")
+    
+    parsed_info = parse_filename_from_post(post)
+    print(f"DEBUG: Parsed info from filename/caption: {parsed_info}")
 
-        print("DEBUG: Processing as 'channel_post' (new file found).")
+    tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
+    if not tmdb_data or not tmdb_data.get("tmdb_id"): 
+        print("DEBUG: TMDb data could not be fetched or is invalid. Skipping content creation.")
+        return
+    print(f"DEBUG: TMDb data fetched: {tmdb_data.get('title')}")
+    
+    quality_match = re.search(r'(\d{3,4})p', file.get('file_name', ''), re.IGNORECASE)
+    quality = quality_match.group(1) + "p" if quality_match else "HD"
+    print(f"DEBUG: Detected quality: {quality}")
+
+    if parsed_info['type'] == 'series':
+        episode_data = {
+            "season": parsed_info['season'], 
+            "episode_number": parsed_info['episode'], 
+            "message_id": message_id, 
+            "quality": quality,
+            "stream_link": stream_link, # বাটন থেকে পাওয়া লিঙ্ক যোগ করা হলো
+            "download_link": download_link # বাটন থেকে পাওয়া লিঙ্ক যোগ করা হলো
+        }
+        # এখানে $push ব্যবহার করা হচ্ছে নতুন এপিসোড ঢোকানোর জন্য
+        # এবং $setOnInsert ব্যবহার করা হচ্ছে নতুন সিরিজ ডকুমেন্ট তৈরি করার জন্য
+        result = movies.update_one(
+            {"tmdb_id": tmdb_data['tmdb_id']},
+            {"$push": {"episodes": episode_data}, "$setOnInsert": {**tmdb_data, "type": "series"}},
+            upsert=True
+        )
+        print(f"DEBUG: Series update/insert result. Matched: {result.matched_count}, Upserted: {result.upserted_id}, Modified: {result.modified_count}")
         
-        parsed_info = parse_filename_from_post(post)
-        print(f"DEBUG: Parsed info from filename/caption: {parsed_info}")
+        # যদি নতুন ডকুমেন্ট তৈরি হয়, তাহলে _id প্রিন্ট করা
+        if result.upserted_id:
+            print(f"DEBUG: New series document created with _id: {result.upserted_id}")
+        elif result.modified_count > 0:
+            print(f"DEBUG: Existing series updated for message_id: {message_id}")
 
-        tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-        if not tmdb_data or not tmdb_data.get("tmdb_id"): 
-            print("DEBUG: TMDb data could not be fetched or is invalid. Skipping.")
-            return
-        print(f"DEBUG: TMDb data fetched: {tmdb_data.get('title')}")
+    else: # Movie
+        file_data = {
+            "quality": quality, 
+            "message_id": message_id,
+            "stream_link": stream_link, # বাটন থেকে পাওয়া লিঙ্ক যোগ করা হলো
+            "download_link": download_link  # বাটন থেকে পাওয়া লিঙ্ক যোগ করা হলো
+        }
+        # এখানেও একই লজিক
+        result = movies.update_one(
+            {"tmdb_id": tmdb_data['tmdb_id']},
+            {"$push": {"files": file_data}, "$setOnInsert": {**tmdb_data, "type": "movie"}},
+            upsert=True
+        )
+        print(f"DEBUG: Movie update/insert result. Matched: {result.matched_count}, Upserted: {result.upserted_id}, Modified: {result.modified_count}")
         
-        quality_match = re.search(r'(\d{3,4})p', file.get('file_name', ''), re.IGNORECASE)
-        quality = quality_match.group(1) + "p" if quality_match else "HD"
-        print(f"DEBUG: Detected quality: {quality}")
-
-        if parsed_info['type'] == 'series':
-            episode_data = {
-                "season": parsed_info['season'], 
-                "episode_number": parsed_info['episode'], 
-                "message_id": message_id, 
-                "quality": quality,
-                "stream_link": None, # ইনিশিয়াল ভাবে লিঙ্ক ফাঁকা থাকবে
-                "download_link": None  # ইনিশিয়াল ভাবে লিঙ্ক ফাঁকা থাকবে
-            }
-            # এখানে $push ব্যবহার করা হচ্ছে নতুন এপিসোড ঢোকানোর জন্য
-            # এবং $setOnInsert ব্যবহার করা হচ্ছে নতুন সিরিজ ডকুমেন্ট তৈরি করার জন্য
-            result = movies.update_one(
-                {"tmdb_id": tmdb_data['tmdb_id']},
-                {"$push": {"episodes": episode_data}, "$setOnInsert": {**tmdb_data, "type": "series"}},
-                upsert=True
-            )
-            print(f"DEBUG: Series update/insert result. Matched: {result.matched_count}, Upserted: {result.upserted_id}, Modified: {result.modified_count}")
-            
-            # যদি নতুন ডকুমেন্ট তৈরি হয়, তাহলে _id প্রিন্ট করা
-            if result.upserted_id:
-                print(f"DEBUG: New series document created with _id: {result.upserted_id}")
-            elif result.modified_count > 0:
-                print(f"DEBUG: Existing series updated for message_id: {message_id}")
-
-        else: # Movie
-            file_data = {
-                "quality": quality, 
-                "message_id": message_id,
-                "stream_link": None, # ইনিশিয়াল ভাবে লিঙ্ক ফাঁকা থাকবে
-                "download_link": None  # ইনিশিয়াল ভাবে লিঙ্ক ফাঁকা থাকবে
-            }
-            # এখানেও একই লজিক
-            result = movies.update_one(
-                {"tmdb_id": tmdb_data['tmdb_id']},
-                {"$push": {"files": file_data}, "$setOnInsert": {**tmdb_data, "type": "movie"}},
-                upsert=True
-            )
-            print(f"DEBUG: Movie update/insert result. Matched: {result.matched_count}, Upserted: {result.upserted_id}, Modified: {result.modified_count}")
-            
-            if result.upserted_id:
-                print(f"DEBUG: New movie document created with _id: {result.upserted_id}")
-            elif result.modified_count > 0:
-                print(f"DEBUG: Existing movie updated for message_id: {message_id}")
+        if result.upserted_id:
+            print(f"DEBUG: New movie document created with _id: {result.upserted_id}")
+        elif result.modified_count > 0:
+            print(f"DEBUG: Existing movie updated for message_id: {message_id}")
             
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
     print(f"DEBUG: Full Webhook Data: {data}") # পুরো ওয়েববুক ডেটা প্রিন্ট করুন
 
+    # 'channel_post' এবং 'edited_channel_post' উভয় ক্ষেত্রেই 'post' ভেরিয়েবল ব্যবহার করুন।
+    # এটি `handle_post` ফাংশনকে আরও জেনেরিক করবে।
     post = data.get('channel_post') or data.get('edited_channel_post')
     if post: 
         handle_post(post)
