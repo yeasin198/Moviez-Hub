@@ -59,7 +59,6 @@ except Exception as e:
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
-# (HTML টেমপ্লেটগুলো এখানে থাকবে, আগের উত্তর থেকে কপি করে নিন)
 # ======================================================================
 index_html = """
 <!DOCTYPE html>
@@ -540,24 +539,23 @@ def telegram_webhook():
 
         if parsed_info['type'] == 'series':
             new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": message_id, "quality": quality}
-            existing = movies.find_one_and_update(
+            result = movies.update_one(
                 {"tmdb_id": tmdb_id, "episodes.season": new_episode['season'], "episodes.episode_number": new_episode['episode_number']},
                 {"$set": {"episodes.$": new_episode}}
             )
-            if not existing:
-                movies.find_one_and_update(
-                    {"tmdb_id": tmdb_id},
-                    {"$push": {"episodes": new_episode}},
-                    upsert=True,
-                    set_on_insert={**tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False}
-                )
-        else:
+            if result.matched_count == 0:
+                result_push = movies.update_one({"tmdb_id": tmdb_id},{"$push": {"episodes": new_episode}})
+                if result_push.matched_count == 0:
+                    series_doc = {**tmdb_data, "type": "series", "episodes": [new_episode], "is_trending": False, "is_coming_soon": False}
+                    movies.insert_one(series_doc)
+        else: # Movie
             new_file = {"quality": quality, "message_id": message_id}
-            existing = movies.find_one_and_update({"tmdb_id": tmdb_id, "files.quality": new_file['quality']},{"$set": {"files.$": new_file}})
-            if not existing:
-                movies.find_one_and_update({"tmdb_id": tmdb_id},{"$push": {"files": new_file}},upsert=True,
-                    set_on_insert={**tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False}
-                )
+            result = movies.update_one({"tmdb_id": tmdb_id, "files.quality": new_file['quality']},{"$set": {"files.$": new_file}})
+            if result.matched_count == 0:
+                result_push = movies.update_one({"tmdb_id": tmdb_id},{"$push": {"files": new_file}})
+                if result_push.matched_count == 0:
+                    movie_doc = {**tmdb_data, "type": "movie", "files": [new_file], "is_trending": False, "is_coming_soon": False}
+                    movies.insert_one(movie_doc)
 
     elif 'message' in data:
         message = data['message']
@@ -586,6 +584,7 @@ def telegram_webhook():
                         if res.get('ok'):
                             scheduler.add_job(delete_message_after_delay, 'date', run_date=datetime.now() + timedelta(minutes=30), args=[chat_id, res['result']['message_id']], id=f'del_{chat_id}_{res["result"]["message_id"]}', replace_existing=True)
                 except Exception as e: print(f"Error in /start: {e}")
+            else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome! Browse our site to find content."})
     return jsonify(status='ok')
 
 # ======================================================================
@@ -680,13 +679,10 @@ def run_pyrogram_in_thread():
     pyro_client.run()
 
 if __name__ == "__main__":
-    # Pyrogram ক্লায়েন্টকে একটি ব্যাকগ্রাউন্ড থ্রেডে চালু করা হচ্ছে
     pyrogram_thread = Thread(target=run_pyrogram_in_thread)
     pyrogram_thread.daemon = True
     pyrogram_thread.start()
     
-    # Flask অ্যাপটি মূল থ্রেডে চালানো হচ্ছে
-    # Gunicorn বা অন্য কোনো প্রোডাকশন সার্ভার ব্যবহার করলে এই app.run() কল হবে না
     print("Starting Flask application...")
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
