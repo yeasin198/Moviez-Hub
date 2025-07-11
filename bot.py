@@ -59,6 +59,7 @@ except Exception as e:
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
+# (HTML টেমপ্লেটগুলো এখানে থাকবে, আগের উত্তর থেকে কপি করে নিন)
 # ======================================================================
 index_html = """
 <!DOCTYPE html>
@@ -380,9 +381,10 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 # ======================================================================
 def check_auth(username, password): return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 def authenticate(): return Response('Could not verify your access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
-@wraps(app.before_request)
+
+@app.before_request
 def requires_auth_wrapper():
-    if request.endpoint and request.endpoint.startswith('admin'):
+    if request.path.startswith('/admin'):
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
             return authenticate()
@@ -506,6 +508,7 @@ def stream_file_route(content_id, content_type, details):
 
         async def generate_chunks():
             try:
+                if not pyro_client.is_connected: await pyro_client.start()
                 async for chunk in stream_generator_async(int(ADMIN_CHANNEL_ID), int(target_message_id)):
                     yield chunk
             except Exception as e:
@@ -589,7 +592,6 @@ def telegram_webhook():
 # --- Admin Panel Routes ---
 # ======================================================================
 @app.route('/admin', methods=["GET", "POST"])
-@requires_auth_wrapper
 def admin():
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
@@ -616,14 +618,12 @@ def admin():
     return render_template_string(admin_html, all_content=all_content, feedback_list=feedback_list)
 
 @app.route('/admin/save_ads', methods=['POST'])
-@requires_auth_wrapper
 def save_ads():
     ad_codes = {k: request.form.get(k, "") for k in ["popunder_code", "social_bar_code", "banner_ad_code", "native_banner_code"]}
     settings.update_one({}, {"$set": ad_codes}, upsert=True)
     return redirect(url_for('admin'))
 
 @app.route('/edit_movie/<movie_id>', methods=["GET", "POST"])
-@requires_auth_wrapper
 def edit_movie(movie_id):
     movie_obj = movies.find_one({"_id": ObjectId(movie_id)})
     if not movie_obj: return "Movie not found", 404
@@ -650,7 +650,6 @@ def edit_movie(movie_id):
     return render_template_string(edit_html, movie=movie_obj)
 
 @app.route('/delete_movie/<movie_id>')
-@requires_auth_wrapper
 def delete_movie(movie_id):
     movies.delete_one({"_id": ObjectId(movie_id)})
     return redirect(url_for('admin'))
@@ -666,7 +665,6 @@ def contact():
     return render_template_string(contact_html, message_sent=False, prefill_title=prefill_title, prefill_id=prefill_id, prefill_type=prefill_type)
     
 @app.route('/delete_feedback/<feedback_id>')
-@requires_auth_wrapper
 def delete_feedback(feedback_id):
     feedback.delete_one({"_id": ObjectId(feedback_id)})
     return redirect(url_for('admin'))
@@ -675,30 +673,20 @@ def delete_feedback(feedback_id):
 # ======================================================================
 # --- অ্যাপ এবং Pyrogram ক্লায়েন্ট চালু করা ---
 # ======================================================================
-async def main():
-    # Pyrogram ক্লায়েন্টকে এখানে চালু করা হচ্ছে
-    await pyro_client.start()
-    print("Pyrogram client started successfully.")
-    
-    # Flask অ্যাপটি একটি পৃথক থ্রেডে চালানো হবে
-    flask_thread = Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=False))
-    flask_thread.daemon = True
-    flask_thread.start()
-    print("Flask application thread started.")
-
-    # asyncio ইভেন্ট লুপকে চলমান রাখা
-    # এটি নিশ্চিত করে যে Pyrogram ক্লায়েন্ট সঠিকভাবে চলতে থাকবে
-    await asyncio.Event().wait()
-
+def run_pyrogram_in_thread():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    print("Starting Pyrogram client in a background thread...")
+    pyro_client.run()
 
 if __name__ == "__main__":
-    try:
-        # async main ফাংশনটি চালানো হচ্ছে
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Shutting down...")
-    finally:
-        # অ্যাপ বন্ধ করার সময় Pyrogram ক্লায়েন্ট বন্ধ করা
-        if pyro_client.is_connected:
-            asyncio.run(pyro_client.stop())
-            print("Pyrogram client stopped.")
+    # Pyrogram ক্লায়েন্টকে একটি ব্যাকগ্রাউন্ড থ্রেডে চালু করা হচ্ছে
+    pyrogram_thread = Thread(target=run_pyrogram_in_thread)
+    pyrogram_thread.daemon = True
+    pyrogram_thread.start()
+    
+    # Flask অ্যাপটি মূল থ্রেডে চালানো হচ্ছে
+    # Gunicorn বা অন্য কোনো প্রোডাকশন সার্ভার ব্যবহার করলে এই app.run() কল হবে না
+    print("Starting Flask application...")
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
