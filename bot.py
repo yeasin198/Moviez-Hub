@@ -207,6 +207,8 @@ detail_html = """
           {% for file in movie.files | sort(attribute='quality') %}
              {% if file.stream_link %}
                 <button class="stream-btn" onclick="loadVideo('{{ file.stream_link }}', '{{ file.quality }}')"><i class="fas fa-play"></i> Play {{ file.quality }}</button>
+             {% else %}
+                <button class="stream-btn" disabled style="background-color:#555; cursor:not-allowed;">Play {{ file.quality }} (Processing...)</button>
              {% endif %}
           {% endfor %}
         </div>
@@ -214,6 +216,8 @@ detail_html = """
           {% for file in movie.files | sort(attribute='quality') %}
              {% if file.download_link %}
                 <a href="{{ file.download_link }}" target="_blank" class="episode-button"><i class="fas fa-download"></i> Download {{ file.quality }}</a>
+             {% else %}
+                 <a href="#" class="episode-button" disabled style="background-color:#555; cursor:not-allowed;">Download {{ file.quality }} (Processing...)</a>
              {% endif %}
           {% endfor %}
         </div>
@@ -224,8 +228,11 @@ detail_html = """
           {% for season, episodes in movie.episodes|sort(attribute='episode_number')|sort(attribute='season')|groupby('season') %}<div id="Season{{ season }}" class="season-content {% if loop.first %}active{% endif %}">
             {% for ep in episodes %}<div class="episode-item"><span class="episode-title">Episode {{ ep.episode_number }}</span>
               <div>
-                {% if ep.stream_link %}<button class="stream-btn" onclick="loadVideo('{{ ep.stream_link }}', 'S{{ep.season}}E{{ep.episode_number}}')"><i class="fas fa-play"></i> Play</button>{% endif %}
-                {% if ep.download_link %}<a href="{{ ep.download_link }}" target="_blank" class="episode-button"><i class="fas fa-download"></i> Download</a>{% endif %}
+                {% if ep.stream_link %}<button class="stream-btn" onclick="loadVideo('{{ ep.stream_link }}', 'S{{ep.season}}E{{ep.episode_number}}')"><i class="fas fa-play"></i> Play</button>
+                {% else %}<button class="stream-btn" disabled style="background-color:#555; cursor:not-allowed;">Play (Processing...)</button>{% endif %}
+                
+                {% if ep.download_link %}<a href="{{ ep.download_link }}" target="_blank" class="episode-button"><i class="fas fa-download"></i> Download</a>
+                {% else %}<a href="#" class="episode-button" disabled style="background-color:#555; cursor:not-allowed;">Download (Processing...)</a>{% endif %}
               </div></div>{% endfor %}
           </div>{% endfor %}
         </div>
@@ -385,9 +392,11 @@ def parse_filename_from_post(post):
 
 def parse_links_from_caption(caption):
     stream_link, download_link = None, None
-    stream_match = re.search(r'stream(?:_link)?:?\s*(https?://[^\s]+)', caption, re.IGNORECASE | re.DOTALL)
+    stream_pattern = r"(?:stream|watch|play)[\s_]*link?[\s:]*=?\s*(https?://[^\s\"]+)"
+    download_pattern = r"download[\s_]*link?[\s:]*=?\s*(https?://[^\s\"]+)"
+    stream_match = re.search(stream_pattern, caption, re.IGNORECASE | re.MULTILINE)
     if stream_match: stream_link = stream_match.group(1)
-    download_match = re.search(r'download(?:_link)?:?\s*(https?://[^\s]+)', caption, re.IGNORECASE | re.DOTALL)
+    download_match = re.search(download_pattern, caption, re.IGNORECASE | re.MULTILINE)
     if download_match: download_link = download_match.group(1)
     return stream_link, download_link
 
@@ -522,12 +531,10 @@ def handle_post(post):
                 {"$push": {"files": file_data}, "$setOnInsert": {**tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False}},
                 upsert=True
             )
-
         try:
             requests.post(f"{TELEGRAM_API_URL}/forwardMessage", json={'chat_id': f'@{LINK_BOT_USERNAME}', 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_id})
         except Exception as e:
             print(f"Error forwarding to link bot: {e}")
-
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
