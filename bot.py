@@ -140,13 +140,68 @@ index_html = """
   .carousel-content::-webkit-scrollbar { display: none; }
   .carousel-arrow { position: absolute; top: 0; height: 100%; transform: translateY(0); background-color: rgba(20, 20, 20, 0.5); border: none; color: white; font-size: 2.5rem; cursor: pointer; z-index: 10; width: 50px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
   .carousel-row:hover .carousel-arrow { opacity: 1; } .carousel-arrow.prev { left: 0; } .carousel-arrow.next { right: 0; }
-  .movie-card { flex: 0 0 16.66%; min-width: 220px; border-radius: 4px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease; position: relative; background-color: #222; display: block; }
-  .movie-poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
-  .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 5px 10px; font-size: 12px; font-weight: 700; border-radius: 4px; z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
-  .card-info-overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 20px 10px 10px 10px; background: linear-gradient(to top, rgba(0,0,0,0.95) 20%, transparent 100%); color: white; text-align: center; opacity: 0; transform: translateY(20px); transition: opacity 0.3s ease, transform 0.3s ease; z-index: 2; }
-  .card-info-title { font-size: 1rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ===================== পরিবর্তিত স্টাইল শুরু ===================== */
+  .movie-card {
+      flex: 0 0 16.66%;
+      min-width: 220px;
+      cursor: pointer;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      background-color: transparent;
+      display: block; /* a ট্যাগ এর জন্য block */
+      position: relative;
+  }
+  .movie-poster {
+      width: 100%;
+      aspect-ratio: 2 / 3;
+      object-fit: cover;
+      display: block;
+      border-radius: 4px;
+  }
+  .poster-badge {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background-color: var(--netflix-red);
+      color: white;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 4px;
+      z-index: 3;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+  }
+  .card-info-overlay {
+      position: static;
+      background: none;
+      opacity: 1;
+      transform: none;
+      padding: 8px 5px 0 5px;
+      text-align: left;
+  }
+  .card-info-title {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text-light);
+      white-space: normal;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+  }
   @keyframes rgb-glow { 0% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } 33% { box-shadow: 0 0 12px #4158D0, 0 0 4px #4158D0; } 66% { box-shadow: 0 0 12px #C850C0, 0 0 4px #C850C0; } 100% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } }
-  @media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 5; animation: rgb-glow 2.5s infinite linear; } .movie-card:hover .card-info-overlay { opacity: 1; transform: translateY(0); } }
+  @media (hover: hover) {
+      .movie-card:hover {
+          transform: scale(1.05);
+          z-index: 5;
+      }
+      .movie-card:hover .movie-poster {
+          animation: rgb-glow 2.5s infinite linear;
+      }
+  }
+  /* ===================== পরিবর্তিত স্টাইল শেষ ===================== */
+
   .full-page-grid-container { padding: 100px 50px 50px 50px; } .full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; } .full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; } .full-page-grid .movie-card { min-width: 0; }
   .bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); background-color: #181818; border-top: 1px solid #282828; justify-content: space-around; align-items: center; z-index: 200; }
   .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-dark); font-size: 10px; flex-grow: 1; padding: 5px 0; transition: color 0.2s ease; }
