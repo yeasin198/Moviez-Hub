@@ -11,8 +11,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 # ======================================================================
 # --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য (এনভায়রনমেন্ট থেকে লোড হবে) ---
-# এই ভেরিয়েবলগুলো আপনার হোস্টিং এনভায়রনমেন্টে সেট করতে হবে।
-# যেমন: Heroku > Settings > Config Vars অথবা Vercel > Project > Settings > Environment Variables
 # ======================================================================
 MONGO_URI = os.environ.get("MONGO_URI")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -130,25 +128,13 @@ index_html = """
   .hero-overview { font-size: 1.1rem; line-height: 1.5; margin-bottom: 1.5rem; max-width: 600px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .hero-buttons .btn { padding: 8px 20px; margin-right: 0.8rem; border: none; border-radius: 4px; font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: opacity 0.3s ease; display: inline-flex; align-items: center; gap: 8px; }
   .btn.btn-primary { background-color: var(--netflix-red); color: white; } .btn.btn-secondary { background-color: rgba(109, 109, 110, 0.7); color: white; } .btn:hover { opacity: 0.8; }
-  main { padding-top: 0; }
-  .carousel-row { margin: 40px 0; position: relative; }
-  .carousel-header { display: flex; justify-content: space-between; align-items: center; margin: 0 50px 15px 50px; }
-  .carousel-title { font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 1.6rem; margin: 0; }
-  .see-all-link { color: var(--text-dark); font-weight: 700; font-size: 0.9rem; }
-  .carousel-wrapper { position: relative; }
-  .carousel-content { display: flex; gap: 10px; padding: 0 50px; overflow-x: scroll; scrollbar-width: none; -ms-overflow-style: none; scroll-behavior: smooth; }
-  .carousel-content::-webkit-scrollbar { display: none; }
-  .carousel-arrow { position: absolute; top: 0; height: 100%; transform: translateY(0); background-color: rgba(20, 20, 20, 0.5); border: none; color: white; font-size: 2.5rem; cursor: pointer; z-index: 10; width: 50px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
-  .carousel-row:hover .carousel-arrow { opacity: 1; } .carousel-arrow.prev { left: 0; } .carousel-arrow.next { right: 0; }
-
-  /* ===================== পরিবর্তিত স্টাইল শুরু ===================== */
+  main { padding: 0 50px; }
   .movie-card {
-      flex: 0 0 16.66%;
-      min-width: 220px;
+      width: 100%;
       cursor: pointer;
       transition: transform 0.3s ease, box-shadow 0.3s ease;
       background-color: transparent;
-      display: block; /* a ট্যাগ এর জন্য block */
+      display: block;
       position: relative;
   }
   .movie-poster {
@@ -159,93 +145,116 @@ index_html = """
       border-radius: 4px;
   }
   .poster-badge {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background-color: var(--netflix-red);
-      color: white;
-      padding: 5px 10px;
-      font-size: 12px;
-      font-weight: 700;
-      border-radius: 4px;
-      z-index: 3;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+      position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 5px 10px; font-size: 12px; font-weight: 700; border-radius: 4px; z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.5);
   }
   .card-info-overlay {
-      position: static;
-      background: none;
-      opacity: 1;
-      transform: none;
-      padding: 8px 5px 0 5px;
-      text-align: left;
+      position: static; background: none; opacity: 1; transform: none; padding: 8px 5px 0 5px; text-align: left;
   }
   .card-info-title {
-      font-size: 0.9rem;
-      font-weight: 500;
-      color: var(--text-light);
-      white-space: normal;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
+      font-size: 0.9rem; font-weight: 500; color: var(--text-light); white-space: normal; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
   @keyframes rgb-glow { 0% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } 33% { box-shadow: 0 0 12px #4158D0, 0 0 4px #4158D0; } 66% { box-shadow: 0 0 12px #C850C0, 0 0 4px #C850C0; } 100% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } }
   @media (hover: hover) {
-      .movie-card:hover {
-          transform: scale(1.05);
-          z-index: 5;
-      }
-      .movie-card:hover .movie-poster {
-          animation: rgb-glow 2.5s infinite linear;
-      }
+      .movie-card:hover { transform: scale(1.05); z-index: 5; }
+      .movie-card:hover .movie-poster { animation: rgb-glow 2.5s infinite linear; }
   }
-  /* ===================== পরিবর্তিত স্টাইল শেষ ===================== */
-
-  .full-page-grid-container { padding: 100px 50px 50px 50px; } .full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; } .full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; } .full-page-grid .movie-card { min-width: 0; }
+  .full-page-grid-container { padding-top: 100px; padding-bottom: 50px; }
+  .full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; }
+  .category-grid, .full-page-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 15px;
+  }
+  .category-section { margin: 40px 0; }
+  .category-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+  .category-title { font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 1.6rem; margin: 0; }
+  .see-all-link { color: var(--text-dark); font-weight: 700; font-size: 0.9rem; }
   .bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); background-color: #181818; border-top: 1px solid #282828; justify-content: space-around; align-items: center; z-index: 200; }
   .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-dark); font-size: 10px; flex-grow: 1; padding: 5px 0; transition: color 0.2s ease; }
   .nav-item i { font-size: 20px; margin-bottom: 4px; } .nav-item.active { color: var(--text-light); } .nav-item.active i { color: var(--netflix-red); }
-  .ad-container { margin: 40px 50px; display: flex; justify-content: center; align-items: center; }
-  .telegram-join-section { background-color: #181818; padding: 40px 20px; margin-top: 50px; text-align: center; }
+  .ad-container { margin: 40px 0; display: flex; justify-content: center; align-items: center; }
+  .telegram-join-section { background-color: #181818; padding: 40px 20px; text-align: center; margin: 50px -50px -50px -50px; }
   .telegram-join-section .telegram-icon { font-size: 4rem; color: #2AABEE; margin-bottom: 15px; } .telegram-join-section h2 { font-family: 'Bebas Neue', sans-serif; font-size: 2.5rem; color: var(--text-light); margin-bottom: 10px; }
   .telegram-join-section p { font-size: 1.1rem; color: var(--text-dark); max-width: 600px; margin: 0 auto 25px auto; }
   .telegram-join-button { display: inline-flex; align-items: center; gap: 10px; background-color: #2AABEE; color: white; padding: 12px 30px; border-radius: 50px; font-size: 1.1rem; font-weight: 700; transition: all 0.2s ease; }
   .telegram-join-button:hover { transform: scale(1.05); background-color: #1e96d1; } .telegram-join-button i { font-size: 1.3rem; }
-  @media (max-width: 768px) { body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } .logo { font-size: 24px; } .search-input { width: 150px; }
-  .tags-section { padding: 80px 15px 15px 15px; } .tag-link { padding: 6px 15px; font-size: 0.8rem; } .hero-section { height: 60vh; }
-  .hero-slide { padding: 15px; align-items: center; } .hero-content { max-width: 90%; text-align: center; } .hero-title { font-size: 2.8rem; } .hero-overview { display: none; }
-  .carousel-row { margin: 25px 0; } .carousel-header { margin: 0 15px 10px 15px; } .carousel-title { font-size: 1.2rem; } .carousel-content { padding: 0 15px; gap: 8px; }
-  .movie-card { min-width: 130px; } .full-page-grid-container { padding: 80px 15px 30px; } .full-page-grid-title { font-size: 1.8rem; }
-  .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; } .bottom-nav { display: flex; } .ad-container { margin: 25px 15px; }
-  .telegram-join-section h2 { font-size: 2rem; } .telegram-join-section p { font-size: 1rem; } }
+  @media (max-width: 768px) {
+      body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } main { padding: 0 15px; } .logo { font-size: 24px; } .search-input { width: 150px; }
+      .tags-section { padding: 80px 15px 15px 15px; } .tag-link { padding: 6px 15px; font-size: 0.8rem; } .hero-section { height: 60vh; margin: 0 -15px;}
+      .hero-slide { padding: 15px; align-items: center; } .hero-content { max-width: 90%; text-align: center; } .hero-title { font-size: 2.8rem; } .hero-overview { display: none; }
+      .category-section { margin: 25px 0; } .category-title { font-size: 1.2rem; }
+      .category-grid, .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 15px 10px; }
+      .full-page-grid-container { padding-top: 80px; } .full-page-grid-title { font-size: 1.8rem; }
+      .bottom-nav { display: flex; } .ad-container { margin: 25px 0; }
+      .telegram-join-section { margin: 50px -15px -30px -15px; }
+      .telegram-join-section h2 { font-size: 2rem; } .telegram-join-section p { font-size: 1rem; }
+  }
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
 <body>
 <header class="main-nav"><a href="{{ url_for('home') }}" class="logo">MovieZone</a><form method="GET" action="/" class="search-form"><input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" /></form></header>
 <main>
-  {% macro render_movie_card(m) %}<a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">{% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}<img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}"><div class="card-info-overlay"><h4 class="card-info-title">{{ m.title }}</h4></div></a>{% endmacro %}
-  {% if is_full_page_list %}<div class="full-page-grid-container"><h2 class="full-page-grid-title">{{ query }}</h2>{% if movies|length == 0 %}<p style="text-align:center; color: var(--text-dark); margin-top: 40px;">No content found.</p>{% else %}<div class="full-page-grid">{% for m in movies %}{{ render_movie_card(m) }}{% endfor %}</div>{% endif %}</div>
+  {% macro render_movie_card(m) %}
+    <a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">
+      {% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}
+      <img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}">
+      <div class="card-info-overlay"><h4 class="card-info-title">{{ m.title }}</h4></div>
+    </a>
+  {% endmacro %}
+
+  {% if is_full_page_list %}
+    <div class="full-page-grid-container">
+        <h2 class="full-page-grid-title">{{ query }}</h2>
+        {% if movies|length == 0 %}
+            <p style="text-align:center; color: var(--text-dark); margin-top: 40px;">No content found.</p>
+        {% else %}
+            <div class="full-page-grid">
+                {% for m in movies %}
+                    {{ render_movie_card(m) }}
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
   {% else %}
     {% if all_badges %}<div class="tags-section"><div class="tags-container">{% for badge in all_badges %}<a href="{{ url_for('movies_by_badge', badge_name=badge) }}" class="tag-link">{{ badge }}</a>{% endfor %}</div></div>{% endif %}
+    
     {% if recently_added %}<div class="hero-section">{% for movie in recently_added %}<div class="hero-slide {% if loop.first %}active{% endif %}" style="background-image: url('{{ movie.poster or '' }}');"><div class="hero-content"><h1 class="hero-title">{{ movie.title }}</h1><p class="hero-overview">{{ movie.overview }}</p><div class="hero-buttons">{% if movie.watch_link and not movie.is_coming_soon %}<a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="btn btn-primary"><i class="fas fa-play"></i> Watch Now</a>{% endif %}<a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-secondary"><i class="fas fa-info-circle"></i> More Info</a></div></div></div>{% endfor %}</div>{% endif %}
-    {% macro render_carousel(title, movies_list, endpoint) %}{% if movies_list %}<div class="carousel-row"><div class="carousel-header"><h2 class="carousel-title">{{ title }}</h2><a href="{{ url_for(endpoint) }}" class="see-all-link">See All ></a></div><div class="carousel-wrapper"><div class="carousel-content">{% for m in movies_list %}{{ render_movie_card(m) }}{% endfor %}</div><button class="carousel-arrow prev"><i class="fas fa-chevron-left"></i></button><button class="carousel-arrow next"><i class="fas fa-chevron-right"></i></button></div></div>{% endif %}{% endmacro %}
-    {{ render_carousel('Trending Now', trending_movies, 'trending_movies') }}
+
+    {% macro render_grid_section(title, movies_list, endpoint) %}
+        {% if movies_list %}
+        <div class="category-section">
+            <div class="category-header">
+                <h2 class="category-title">{{ title }}</h2>
+                <a href="{{ url_for(endpoint) }}" class="see-all-link">See All ></a>
+            </div>
+            <div class="category-grid">
+                {% for m in movies_list %}
+                    {{ render_movie_card(m) }}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    {% endmacro %}
+
+    {{ render_grid_section('Trending Now', trending_movies, 'trending_movies') }}
     {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
-    {{ render_carousel('Latest Movies', latest_movies, 'movies_only') }}
+    {{ render_grid_section('Latest Movies', latest_movies, 'movies_only') }}
     {% if ad_settings.native_banner_code %}<div class="ad-container">{{ ad_settings.native_banner_code|safe }}</div>{% endif %}
-    {{ render_carousel('Web Series', latest_series, 'webseries') }}
-    {{ render_carousel('Recently Added', recently_added_full, 'recently_added_all') }}
-    {{ render_carousel('Coming Soon', coming_soon_movies, 'coming_soon') }}
-    <div class="telegram-join-section"><i class="fa-brands fa-telegram telegram-icon"></i><h2>Join Our Telegram Channel</h2><p>Get the latest movie updates, news, and direct download links right on your phone!</p><a href="https://t.me/+60goZWp-FpkxNzVl" target="_blank" class="telegram-join-button"><i class="fa-brands fa-telegram"></i> Join Main Channel</a></div>
+    {{ render_grid_section('Web Series', latest_series, 'webseries') }}
+    {{ render_grid_section('Recently Added', recently_added_full, 'recently_added_all') }}
+    {{ render_grid_section('Coming Soon', coming_soon_movies, 'coming_soon') }}
+    
+    <div class="telegram-join-section">
+        <i class="fa-brands fa-telegram telegram-icon"></i>
+        <h2>Join Our Telegram Channel</h2>
+        <p>Get the latest movie updates, news, and direct download links right on your phone!</p>
+        <a href="https://t.me/+60goZWp-FpkxNzVl" target="_blank" class="telegram-join-button"><i class="fa-brands fa-telegram"></i> Join Main Channel</a>
+    </div>
   {% endif %}
 </main>
 <nav class="bottom-nav"><a href="{{ url_for('home') }}" class="nav-item {% if request.endpoint == 'home' %}active{% endif %}"><i class="fas fa-home"></i><span>Home</span></a><a href="{{ url_for('genres_page') }}" class="nav-item {% if request.endpoint == 'genres_page' %}active{% endif %}"><i class="fas fa-layer-group"></i><span>Genres</span></a><a href="{{ url_for('contact') }}" class="nav-item {% if request.endpoint == 'contact' %}active{% endif %}"><i class="fas fa-envelope"></i><span>Request</span></a></nav>
 <script>
     const nav = document.querySelector('.main-nav');
     window.addEventListener('scroll', () => { window.scrollY > 50 ? nav.classList.add('scrolled') : nav.classList.remove('scrolled'); });
-    document.querySelectorAll('.carousel-arrow').forEach(button => { button.addEventListener('click', () => { const carousel = button.closest('.carousel-wrapper').querySelector('.carousel-content'); const scroll = carousel.clientWidth * 0.8; carousel.scrollLeft += button.classList.contains('next') ? scroll : -scroll; }); });
     document.addEventListener('DOMContentLoaded', function() { const slides = document.querySelectorAll('.hero-slide'); if (slides.length > 1) { let currentSlide = 0; const showSlide = (index) => slides.forEach((s, i) => s.classList.toggle('active', i === index)); setInterval(() => { currentSlide = (currentSlide + 1) % slides.length; showSlide(currentSlide); }, 5000); } });
 </script>
 {% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
@@ -291,12 +300,7 @@ detail_html = """
   .episode-title { font-size: 1.1rem; font-weight: 500; color: #fff; }
   .ad-container { margin: 30px 0; text-align: center; }
   .related-section-container { padding: 40px 0; background-color: #181818; }
-  .carousel-row { margin: 40px 0; position: relative; } .carousel-wrapper { position: relative; }
-  .carousel-content { display: flex; gap: 10px; padding: 0 50px; overflow-x: scroll; scrollbar-width: none; scroll-behavior: smooth; }
-  .carousel-content::-webkit-scrollbar { display: none; }
-  .carousel-arrow { position: absolute; top: 0; height: 100%; background-color: rgba(20, 20, 20, 0.5); border: none; color: white; font-size: 2.5rem; cursor: pointer; z-index: 10; width: 50px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
-  .carousel-row:hover .carousel-arrow { opacity: 1; } .carousel-arrow.prev { left: 0; } .carousel-arrow.next { right: 0; }
-  .related-movie-card-wrapper { flex: 0 0 16.66%; min-width: 220px; }
+  .related-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 15px; padding: 0 50px; }
   .movie-card { width: 100%; border-radius: 4px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease; display: block; position: relative; }
   .movie-poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
   .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 5px 10px; font-size: 12px; font-weight: 700; border-radius: 4px; z-index: 3; }
@@ -306,7 +310,8 @@ detail_html = """
   @media (max-width: 768px) { .detail-header { padding: 20px; } .detail-hero { padding: 80px 20px 40px; } .detail-poster { width: 60%; max-width: 220px; height: auto; } .detail-title { font-size: 2.2rem; }
   .action-btn, .download-button { display: block; width: 100%; max-width: 320px; margin: 0 auto 10px auto; }
   .episode-item { flex-direction: column; align-items: flex-start; gap: 10px; } .episode-button { width: 100%; }
-  .section-title { margin-left: 15px !important; } .related-section-container { padding: 20px 0; } .carousel-content { padding: 0 15px; } .related-movie-card-wrapper { min-width: 130px; } .carousel-arrow { display: none; } }
+  .section-title { margin-left: 15px !important; } .related-section-container { padding: 20px 0; }
+  .related-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 15px 10px; padding: 0 15px; } }
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
@@ -321,61 +326,29 @@ detail_html = """
       <h1 class="detail-title">{{ movie.title }}</h1>
       <div class="detail-meta">{% if movie.release_date %}<span>{{ movie.release_date.split('-')[0] }}</span>{% endif %}{% if movie.vote_average %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(movie.vote_average) }}</span>{% endif %}{% if movie.genres %}<span>{{ movie.genres | join(' • ') }}</span>{% endif %}</div>
       <p class="detail-overview">{{ movie.overview }}</p>
-
       {% if movie.type == 'movie' and movie.watch_link %}<a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="action-btn"><i class="fas fa-play"></i> Watch Now</a>{% endif %}
-
       {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
       {% if trailer_key %}<div class="trailer-section"><h3 class="section-title">Watch Trailer</h3><div class="video-container"><iframe src="https://www.youtube.com/embed/{{ trailer_key }}" frameborder="0" allowfullscreen></iframe></div></div>{% endif %}
       <div style="margin: 20px 0;"><a href="{{ url_for('contact', report_id=movie._id, title=movie.title) }}" class="download-button" style="background-color:#5a5a5a; text-align:center;"><i class="fas fa-flag"></i> Report a Problem</a></div>
-
-      {% if movie.is_coming_soon %}
-        <h3 class="section-title">Coming Soon</h3>
-
+      {% if movie.is_coming_soon %}<h3 class="section-title">Coming Soon</h3>
       {% elif movie.type == 'movie' %}
         <div class="download-section">
-          <!-- ম্যানুয়াল লিঙ্কের জন্য (অ্যাডমিন প্যানেল থেকে) -->
-          {% if movie.links %}
-            <h3 class="section-title">Download Links</h3>
-            {% for link_item in movie.links %}
-              <div><a class="download-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> {{ link_item.quality }}</a><button class="copy-button" onclick="copyToClipboard('{{ link_item.url }}')"><i class="fas fa-copy"></i></button></div>
-            {% endfor %}
-          {% endif %}
-
-          <!-- টেলিগ্রাম থেকে আসা ফাইলের জন্য -->
-          {% if movie.files %}
-            <h3 class="section-title">Get from Telegram</h3>
-            {% for file in movie.files | sort(attribute='quality') %}
-               <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="action-btn" style="background-color: #2AABEE; display: block; text-align:center; margin-top:10px; margin-bottom: 0;">
-                 <i class="fa-brands fa-telegram"></i> Get {{ file.quality }}
-               </a>
-            {% endfor %}
-          {% endif %}
+          {% if movie.links %}<h3 class="section-title">Download Links</h3>{% for link_item in movie.links %}<div><a class="download-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> {{ link_item.quality }}</a><button class="copy-button" onclick="copyToClipboard('{{ link_item.url }}')"><i class="fas fa-copy"></i></button></div>{% endfor %}{% endif %}
+          {% if movie.files %}<h3 class="section-title">Get from Telegram</h3>{% for file in movie.files | sort(attribute='quality') %}<a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="action-btn" style="background-color: #2AABEE; display: block; text-align:center; margin-top:10px; margin-bottom: 0;"><i class="fa-brands fa-telegram"></i> Get {{ file.quality }}</a>{% endfor %}{% endif %}
         </div>
-
       {% elif movie.type == 'series' %}
         <div class="episode-section">
           <h3 class="section-title">Episodes</h3>
-          {% if movie.episodes %}
-            {% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}
-              <div class="episode-item">
-                  <span class="episode-title">Season {{ ep.season }} - Episode {{ ep.episode_number }}</span>
-                  <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="episode-button" style="background-color: #2AABEE;"><i class="fa-brands fa-telegram"></i> Get Episode</a>
-              </div>
-            {% endfor %}
-          {% else %}
-            <p>No episodes available yet.</p>
-          {% endif %}
+          {% if movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}<div class="episode-item"><span class="episode-title">Season {{ ep.season }} - Episode {{ ep.episode_number }}</span><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="episode-button" style="background-color: #2AABEE;"><i class="fa-brands fa-telegram"></i> Get Episode</a></div>{% endfor %}{% else %}<p>No episodes available yet.</p>{% endif %}
         </div>
       {% endif %}
-
     </div>
   </div>
 </div>
-{% if related_movies %}<div class="related-section-container"><div class="carousel-row" style="margin-top: 20px; margin-bottom: 20px;"><h3 class="section-title" style="margin-left: 50px; color: white;">You Might Also Like</h3><div class="carousel-wrapper"><div class="carousel-content">{% for m in related_movies %}<div class="related-movie-card-wrapper">{{ render_movie_card(m) }}</div>{% endfor %}</div><button class="carousel-arrow prev"><i class="fas fa-chevron-left"></i></button><button class="carousel-arrow next"><i class="fas fa-chevron-right"></i></button></div></div></div>{% endif %}
+{% if related_movies %}<div class="related-section-container"><h3 class="section-title" style="margin-left: 50px; color: white;">You Might Also Like</h3><div class="related-grid">{% for m in related_movies %}{{ render_movie_card(m) }}{% endfor %}</div></div>{% endif %}
 {% else %}<div style="display:flex; justify-content:center; align-items:center; height:100vh;"><h2>Content not found.</h2></div>{% endif %}
 <script>
 function copyToClipboard(text) { navigator.clipboard.writeText(text).then(() => alert('Link copied!'), () => alert('Copy failed!')); }
-document.querySelectorAll('.carousel-arrow').forEach(button => { button.addEventListener('click', () => { const carousel = button.closest('.carousel-wrapper').querySelector('.carousel-content'); const scrollAmount = carousel.clientWidth * 0.8; carousel.scrollLeft += button.classList.contains('next') ? scrollAmount : -scrollAmount; }); });
 </script>
 {% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
 {% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
