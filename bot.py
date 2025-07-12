@@ -975,8 +975,7 @@ def telegram_webhook():
                     print(f"Error processing /start command: {e}")
                     requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred while processing your request."})
             else:
-                requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "আমাদের ওয়েবসাইটে আপনাকে স্বাগতম!
-🌐 ভিজিট করুন:https://teest100.onrender.com."})
+                requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "আমাদের ওয়েবসাইটে আপনাকে স্বাগতম."})
 
     return jsonify(status='ok')
 
