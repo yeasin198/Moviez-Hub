@@ -643,13 +643,16 @@ def home():
         return render_template_string(index_html, movies=process_movie_list(movies_list), query=f'Results for "{query}"', is_full_page_list=True)
 
     all_badges = sorted([badge for badge in movies.distinct("poster_badge") if badge])
+    # এই limit ভেরিয়েবলটি প্রতিটি সেকশনে কতগুলো আইটেম দেখাবে তা নিয়ন্ত্রণ করে।
     limit = 12
     context = {
         "trending_movies": process_movie_list(list(movies.find({"is_trending": True, "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "latest_movies": process_movie_list(list(movies.find({"type": "movie", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "latest_series": process_movie_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "coming_soon_movies": process_movie_list(list(movies.find({"is_coming_soon": True}).sort('_id', -1).limit(limit))),
+        # Hero Section (স্লাইডশো) এর জন্য কম আইটেম (৬টি) রাখা হয়েছে ডিজাইন ঠিক রাখার জন্য।
         "recently_added": process_movie_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(6))),
+        # "Recently Added" গ্রিড সেকশনের জন্য ১২টি আইটেম।
         "recently_added_full": process_movie_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "is_full_page_list": False, "query": "", "all_badges": all_badges
     }
@@ -663,6 +666,7 @@ def movie_detail(movie_id):
 
         related_movies = []
         if movie.get("genres"):
+            # "You might also like" সেকশনে ১২টি মুভি দেখানোর জন্য limit(12) ব্যবহার করা হয়েছে
             related_movies = list(movies.find({"genres": {"$in": movie["genres"]}, "_id": {"$ne": ObjectId(movie_id)}}).limit(12))
 
         trailer_key = None
