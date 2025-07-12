@@ -266,21 +266,21 @@ detail_html = """
       <h1 class="detail-title">{{ movie.title }}</h1>
       <div class="detail-meta">{% if movie.release_date %}<span>{{ movie.release_date.split('-')[0] }}</span>{% endif %}{% if movie.vote_average %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(movie.vote_average) }}</span>{% endif %}{% if movie.genres %}<span>{{ movie.genres | join(' • ') }}</span>{% endif %}</div>
       <p class="detail-overview">{{ movie.overview }}</p>
-      
+
       {% if movie.type == 'movie' and movie.watch_link %}<a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="action-btn"><i class="fas fa-play"></i> Watch Now</a>{% endif %}
-      
+
       {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
       {% if trailer_key %}<div class="trailer-section"><h3 class="section-title">Watch Trailer</h3><div class="video-container"><iframe src="https://www.youtube.com/embed/{{ trailer_key }}" frameborder="0" allowfullscreen></iframe></div></div>{% endif %}
       <div style="margin: 20px 0;"><a href="{{ url_for('contact', report_id=movie._id, title=movie.title) }}" class="download-button" style="background-color:#5a5a5a; text-align:center;"><i class="fas fa-flag"></i> Report a Problem</a></div>
 
       {% if movie.is_coming_soon %}
         <h3 class="section-title">Coming Soon</h3>
-      
+
       {% elif movie.type == 'movie' %}
         <div class="download-section">
           <!-- ম্যানুয়াল লিঙ্কের জন্য (অ্যাডমিন প্যানেল থেকে) -->
           {% if movie.links %}
-            <h3 class="section-title">Download Links (Manual)</h3>
+            <h3 class="section-title">Download Links</h3>
             {% for link_item in movie.links %}
               <div><a class="download-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> {{ link_item.quality }}</a><button class="copy-button" onclick="copyToClipboard('{{ link_item.url }}')"><i class="fas fa-copy"></i></button></div>
             {% endfor %}
@@ -296,7 +296,7 @@ detail_html = """
             {% endfor %}
           {% endif %}
         </div>
-      
+
       {% elif movie.type == 'series' %}
         <div class="episode-section">
           <h3 class="section-title">Episodes</h3>
@@ -370,13 +370,13 @@ form { max-width: 800px; margin: 0 auto 40px auto; background: var(--dark-gray);
 .form-group { margin-bottom: 15px; } .form-group label { display: block; margin-bottom: 8px; font-weight: bold; }
 input[type="text"], input[type="url"], textarea, select, input[type="number"], input[type="email"] { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid var(--light-gray); font-size: 1rem; background: var(--light-gray); color: var(--text-light); box-sizing: border-box; }
 input[type="checkbox"] { width: auto; margin-right: 10px; transform: scale(1.2); } textarea { resize: vertical; min-height: 100px; }
-button[type="submit"], .add-episode-btn { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; transition: background 0.3s ease; }
-button[type="submit"]:hover, .add-episode-btn:hover { background: #b00710; }
+button[type="submit"], .add-btn { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; transition: background 0.3s ease; }
+button[type="submit"]:hover, .add-btn:hover { background: #b00710; }
 table { display: block; overflow-x: auto; white-space: nowrap; width: 100%; border-collapse: collapse; margin-top: 20px; }
 th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--light-gray); } th { background: #252525; } td { background: var(--dark-gray); }
 .action-buttons { display: flex; gap: 10px; } .action-buttons a, .action-buttons button, .delete-btn { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; border: none; cursor: pointer; }
 .edit-btn { background: #007bff; } .delete-btn { background: #dc3545; }
-.episode-item { border: 1px solid var(--light-gray); padding: 15px; margin-bottom: 15px; border-radius: 5px; }
+.dynamic-item { border: 1px solid var(--light-gray); padding: 15px; margin-bottom: 15px; border-radius: 5px; }
 hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray); margin: 40px 0; }
 </style><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head>
 <body>
@@ -384,17 +384,63 @@ hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray)
   <form action="{{ url_for('save_ads') }}" method="post"><div class="form-group"><label>Pop-Under / OnClick Ad Code</label><textarea name="popunder_code" rows="4">{{ ad_settings.popunder_code or '' }}</textarea></div><div class="form-group"><label>Social Bar / Sticky Ad Code</label><textarea name="social_bar_code" rows="4">{{ ad_settings.social_bar_code or '' }}</textarea></div><div class="form-group"><label>ব্যানার বিজ্ঞাপন কোড (Banner Ad)</label><textarea name="banner_ad_code" rows="4">{{ ad_settings.banner_ad_code or '' }}</textarea></div><div class="form-group"><label>নেটিভ ব্যানার বিজ্ঞাপন (Native Banner)</label><textarea name="native_banner_code" rows="4">{{ ad_settings.native_banner_code or '' }}</textarea></div><button type="submit">Save Ad Codes</button></form>
   <hr class="section-divider">
   <h2>Add New Content (Manual)</h2>
-  <form method="post" action="{{ url_for('admin') }}"><div class="form-group"><label>Title (Required):</label><input type="text" name="title" required /></div><div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleEpisodeFields()"><option value="movie">Movie</option><option value="series">TV/Web Series</option></select></div><div id="movie_fields"><div class="form-group"><label>Watch Link (Embed URL):</label><input type="url" name="watch_link" /></div><hr><p>OR Download Links</p><div class="form-group"><label>480p Link:</label><input type="url" name="link_480p" /></div><div class="form-group"><label>720p Link:</label><input type="url" name="link_720p" /></div><div class="form-group"><label>1080p Link:</label><input type="url" name="link_1080p" /></div></div><div id="episode_fields" style="display: none;"><h3>Episodes</h3><div id="episodes_container"></div><button type="button" onclick="addEpisodeField()" class="add-episode-btn">Add Episode</button></div><hr style="margin: 20px 0;"><button type="submit">Add Content</button></form>
+  <form method="post" action="{{ url_for('admin') }}">
+    <div class="form-group"><label>Title (Required):</label><input type="text" name="title" required /></div>
+    <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleFields()"><option value="movie">Movie</option><option value="series">TV/Web Series</option></select></div>
+    
+    <div id="movie_fields">
+      <div class="form-group"><label>Watch Link (Embed URL):</label><input type="url" name="watch_link" /></div><hr><p><b>OR</b> Download Links (Manual)</p>
+      <div class="form-group"><label>480p Link:</label><input type="url" name="link_480p" /></div>
+      <div class="form-group"><label>720p Link:</label><input type="url" name="link_720p" /></div>
+      <div class="form-group"><label>1080p Link:</label><input type="url" name="link_1080p" /></div>
+      <hr><p><b>OR</b> Get from Telegram</p>
+      <div id="telegram_files_container"></div><button type="button" onclick="addTelegramFileField()" class="add-btn">Add Telegram File</button>
+    </div>
+    
+    <div id="episode_fields" style="display: none;">
+      <h3>Episodes</h3><div id="episodes_container"></div>
+      <button type="button" onclick="addEpisodeField()" class="add-btn">Add Episode</button>
+    </div>
+    
+    <hr style="margin: 20px 0;"><button type="submit">Add Content</button>
+  </form>
   <hr class="section-divider">
   <h2>Manage Content</h2>
   <table><thead><tr><th>Title</th><th>Type</th><th>Actions</th></tr></thead><tbody>{% for movie in all_content %}<tr><td>{{ movie.title }}</td><td>{{ movie.type | title }}</td><td class="action-buttons"><a href="{{ url_for('edit_movie', movie_id=movie._id) }}" class="edit-btn">Edit</a><button class="delete-btn" onclick="confirmDelete('{{ movie._id }}', '{{ movie.title }}')">Delete</button></td></tr>{% endfor %}</tbody></table>
   <hr class="section-divider">
   <h2>User Feedback / Reports</h2>
   {% if feedback_list %}<table><thead><tr><th>Date</th><th>Type</th><th>Title</th><th>Message</th><th>Email</th><th>Action</th></tr></thead><tbody>{% for item in feedback_list %}<tr><td style="min-width: 150px;">{{ item.timestamp.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ item.type }}</td><td>{{ item.content_title }}</td><td style="white-space: pre-wrap; min-width: 300px;">{{ item.message }}</td><td>{{ item.email or 'N/A' }}</td><td><a href="{{ url_for('delete_feedback', feedback_id=item._id) }}" class="delete-btn" onclick="return confirm('Delete this feedback?');">Delete</a></td></tr>{% endfor %}</tbody></table>{% else %}<p>No new feedback or reports.</p>{% endif %}
-  <script>function confirmDelete(id, title) { if (confirm('Delete "' + title + '"?')) window.location.href = '/delete_movie/' + id; }
-    function toggleEpisodeFields() { var isSeries = document.getElementById('content_type').value === 'series'; document.getElementById('episode_fields').style.display = isSeries ? 'block' : 'none'; document.getElementById('movie_fields').style.display = isSeries ? 'none' : 'block'; }
-    function addEpisodeField() { const c = document.getElementById('episodes_container'), d = document.createElement('div'); d.className = 'episode-item'; d.innerHTML = `<div class="form-group"><label>Season Number:</label><input type="number" name="episode_season[]" value="1" required /></div><div class="form-group"><label>Ep Number:</label><input type="number" name="episode_number[]" required /></div><div class="form-group"><label>Ep Title:</label><input type="text" name="episode_title[]" required /></div><div class="form-group"><label>Watch Link:</label><input type="url" name="episode_watch_link[]" /></div><hr><p>OR Download Links</p><div class="form-group"><label>480p Link:</label><input type="url" name="episode_link_480p[]" /></div><div class="form-group"><label>720p Link:</label><input type="url" name="episode_link_720p[]" /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Ep</button>`; c.appendChild(d); }
-    document.addEventListener('DOMContentLoaded', toggleEpisodeFields);
+  
+  <script>
+    function confirmDelete(id, title) { if (confirm('Delete "' + title + '"?')) window.location.href = '/delete_movie/' + id; }
+    function toggleFields() { var isSeries = document.getElementById('content_type').value === 'series'; document.getElementById('episode_fields').style.display = isSeries ? 'block' : 'none'; document.getElementById('movie_fields').style.display = isSeries ? 'none' : 'block'; }
+    
+    function addTelegramFileField() {
+        const c = document.getElementById('telegram_files_container');
+        const d = document.createElement('div');
+        d.className = 'dynamic-item';
+        d.innerHTML = `<div class="form-group"><label>Quality (e.g., 720p):</label><input type="text" name="telegram_quality[]" required /></div>
+                       <div class="form-group"><label>Message ID:</label><input type="number" name="telegram_message_id[]" required /></div>
+                       <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove</button>`;
+        c.appendChild(d);
+    }
+
+    function addEpisodeField() {
+        const c = document.getElementById('episodes_container');
+        const d = document.createElement('div');
+        d.className = 'dynamic-item';
+        d.innerHTML = `<div class="form-group"><label>Season Number:</label><input type="number" name="episode_season[]" value="1" required /></div>
+                       <div class="form-group"><label>Episode Number:</label><input type="number" name="episode_number[]" required /></div>
+                       <div class="form-group"><label>Episode Title:</label><input type="text" name="episode_title[]" /></div>
+                       <hr><p><b>Provide ONE of the following:</b></p>
+                       <div class="form-group"><label>Telegram Message ID:</label><input type="number" name="episode_message_id[]" /></div>
+                       <p><b>OR</b> Watch Link:</p>
+                       <div class="form-group"><label>Watch Link (Embed):</label><input type="url" name="episode_watch_link[]" /></div>
+                       <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Episode</button>`;
+        c.appendChild(d);
+    }
+
+    document.addEventListener('DOMContentLoaded', toggleFields);
   </script>
 </body></html>
 """
@@ -409,9 +455,9 @@ form { max-width: 800px; margin: 0 auto 40px auto; background: var(--dark-gray);
 .form-group { margin-bottom: 15px; } .form-group label { display: block; margin-bottom: 8px; font-weight: bold; }
 input, textarea, select { width: 100%; padding: 12px; border-radius: 4px; border: 1px solid var(--light-gray); font-size: 1rem; background: var(--light-gray); color: var(--text-light); box-sizing: border-box; }
 input[type="checkbox"] { width: auto; margin-right: 10px; transform: scale(1.2); } textarea { resize: vertical; min-height: 100px; }
-button[type="submit"], .add-episode-btn { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; }
+button[type="submit"], .add-btn { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; }
 .back-to-admin { display: inline-block; margin-bottom: 20px; color: var(--netflix-red); text-decoration: none; font-weight: bold; }
-.episode-item { border: 1px solid var(--light-gray); padding: 15px; margin-bottom: 15px; border-radius: 5px; } .delete-btn { background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+.dynamic-item { border: 1px solid var(--light-gray); padding: 15px; margin-bottom: 15px; border-radius: 5px; } .delete-btn { background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
 </style><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head>
 <body>
   <a href="{{ url_for('admin') }}" class="back-to-admin">← Back to Admin</a>
@@ -421,31 +467,73 @@ button[type="submit"], .add-episode-btn { background: var(--netflix-red); color:
     <div class="form-group"><label>Poster URL:</label><input type="url" name="poster" value="{{ movie.poster or '' }}" /></div><div class="form-group"><label>Overview:</label><textarea name="overview">{{ movie.overview or '' }}</textarea></div>
     <div class="form-group"><label>Genres (comma separated):</label><input type="text" name="genres" value="{{ movie.genres|join(', ') if movie.genres else '' }}" /></div>
     <div class="form-group"><label>Poster Badge:</label><input type="text" name="poster_badge" value="{{ movie.poster_badge or '' }}" /></div>
-    <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleEpisodeFields()"><option value="movie" {% if movie.type == 'movie' %}selected{% endif %}>Movie</option><option value="series" {% if movie.type == 'series' %}selected{% endif %}>TV/Web Series</option></select></div>
-    <div id="movie_fields"><div class="form-group"><label>Watch Link:</label><input type="url" name="watch_link" value="{{ movie.watch_link or '' }}" /></div><hr><p>OR Download Links</p>
-      <div class="form-group"><label>480p Link:</label><input type="url" name="link_480p" value="{% for l in movie.links %}{% if l.quality == '480p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
-      <div class="form-group"><label>720p Link:</label><input type="url" name="link_720p" value="{% for l in movie.links %}{% if l.quality == '720p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
-      <div class="form-group"><label>1080p Link:</label><input type="url" name="link_1080p" value="{% for l in movie.links %}{% if l.quality == '1080p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+    <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleFields()"><option value="movie" {% if movie.type == 'movie' %}selected{% endif %}>Movie</option><option value="series" {% if movie.type == 'series' %}selected{% endif %}>TV/Web Series</option></select></div>
+    
+    <div id="movie_fields">
+        <div class="form-group"><label>Watch Link:</label><input type="url" name="watch_link" value="{{ movie.watch_link or '' }}" /></div><hr><p><b>OR</b> Download Links (Manual)</p>
+        <div class="form-group"><label>480p Link:</label><input type="url" name="link_480p" value="{% for l in movie.links %}{% if l.quality == '480p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+        <div class="form-group"><label>720p Link:</label><input type="url" name="link_720p" value="{% for l in movie.links %}{% if l.quality == '720p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+        <div class="form-group"><label>1080p Link:</label><input type="url" name="link_1080p" value="{% for l in movie.links %}{% if l.quality == '1080p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+        <hr><p><b>OR</b> Get from Telegram</p>
+        <div id="telegram_files_container">
+            {% if movie.type == 'movie' and movie.files %}{% for file in movie.files %}
+            <div class="dynamic-item">
+                <div class="form-group"><label>Quality:</label><input type="text" name="telegram_quality[]" value="{{ file.quality }}" required /></div>
+                <div class="form-group"><label>Message ID:</label><input type="number" name="telegram_message_id[]" value="{{ file.message_id }}" required /></div>
+                <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove</button>
+            </div>
+            {% endfor %}{% endif %}
+        </div><button type="button" onclick="addTelegramFileField()" class="add-btn">Add Telegram File</button>
     </div>
-    <div id="episode_fields" style="display: none;"><h3>Episodes</h3><div id="episodes_container">
-      {% if movie.type == 'series' and movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}<div class="episode-item">
+
+    <div id="episode_fields" style="display: none;">
+      <h3>Episodes</h3><div id="episodes_container">
+      {% if movie.type == 'series' and movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}<div class="dynamic-item">
         <div class="form-group"><label>Season Number:</label><input type="number" name="episode_season[]" value="{{ ep.season or 1 }}" required /></div>
         <div class="form-group"><label>Ep Number:</label><input type="number" name="episode_number[]" value="{{ ep.episode_number }}" required /></div>
-        <div class="form-group"><label>Ep Title:</label><input type="text" name="episode_title[]" value="{{ ep.title or '' }}" required /></div>
-        <div class="form-group"><label>Watch Link:</label><input type="url" name="episode_watch_link[]" value="{{ ep.watch_link or '' }}" /></div><hr><p>OR Download Links</p>
-        <div class="form-group"><label>480p Link:</label><input type="url" name="episode_link_480p[]" value="{% for l in ep.links %}{% if l.quality=='480p'%}{{l.url}}{%endif%}{%endfor%}" /></div>
-        <div class="form-group"><label>720p Link:</label><input type="url" name="episode_link_720p[]" value="{% for l in ep.links %}{% if l.quality=='720p'%}{{l.url}}{%endif%}{%endfor%}" /></div>
-        <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Ep</button>
-      </div>{% endfor %}{% endif %}</div><button type="button" onclick="addEpisodeField()" class="add-episode-btn">Add Episode</button>
+        <div class="form-group"><label>Ep Title:</label><input type="text" name="episode_title[]" value="{{ ep.title or '' }}" /></div>
+        <hr><p><b>Provide ONE of the following:</b></p>
+        <div class="form-group"><label>Telegram Message ID:</label><input type="number" name="episode_message_id[]" value="{{ ep.message_id or '' }}" /></div>
+        <p><b>OR</b> Watch Link:</p>
+        <div class="form-group"><label>Watch Link (Embed):</label><input type="url" name="episode_watch_link[]" value="{{ ep.watch_link or '' }}" /></div>
+        <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Episode</button>
+      </div>{% endfor %}{% endif %}</div><button type="button" onclick="addEpisodeField()" class="add-btn">Add Episode</button>
     </div>
+    
     <hr style="margin: 20px 0;">
     <div class="form-group"><input type="checkbox" name="is_trending" value="true" {% if movie.is_trending %}checked{% endif %}><label style="display: inline-block;">Is Trending?</label></div>
     <div class="form-group"><input type="checkbox" name="is_coming_soon" value="true" {% if movie.is_coming_soon %}checked{% endif %}><label style="display: inline-block;">Is Coming Soon?</label></div>
     <button type="submit">Update Content</button>
   </form>
-  <script>function toggleEpisodeFields() { var isSeries = document.getElementById('content_type').value === 'series'; document.getElementById('episode_fields').style.display = isSeries ? 'block' : 'none'; document.getElementById('movie_fields').style.display = isSeries ? 'none' : 'block'; }
-    function addEpisodeField() { const c = document.getElementById('episodes_container'), d = document.createElement('div'); d.className = 'episode-item'; d.innerHTML = `<div class="form-group"><label>Season Number:</label><input type="number" name="episode_season[]" value="1" required /></div><div class="form-group"><label>Ep Number:</label><input type="number" name="episode_number[]" required /></div><div class="form-group"><label>Ep Title:</label><input type="text" name="episode_title[]" required /></div><div class="form-group"><label>Watch Link:</label><input type="url" name="episode_watch_link[]" /></div><hr><p>OR Download Links</p><div class="form-group"><label>480p Link:</label><input type="url" name="episode_link_480p[]" /></div><div class="form-group"><label>720p Link:</label><input type="url" name="episode_link_720p[]" /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Ep</button>`; c.appendChild(d); }
-    document.addEventListener('DOMContentLoaded', toggleEpisodeFields);
+  
+  <script>
+    function toggleFields() { var isSeries = document.getElementById('content_type').value === 'series'; document.getElementById('episode_fields').style.display = isSeries ? 'block' : 'none'; document.getElementById('movie_fields').style.display = isSeries ? 'none' : 'block'; }
+    
+    function addTelegramFileField() {
+        const c = document.getElementById('telegram_files_container');
+        const d = document.createElement('div');
+        d.className = 'dynamic-item';
+        d.innerHTML = `<div class="form-group"><label>Quality (e.g., 720p):</label><input type="text" name="telegram_quality[]" required /></div>
+                       <div class="form-group"><label>Message ID:</label><input type="number" name="telegram_message_id[]" required /></div>
+                       <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove</button>`;
+        c.appendChild(d);
+    }
+
+    function addEpisodeField() {
+        const c = document.getElementById('episodes_container');
+        const d = document.createElement('div');
+        d.className = 'dynamic-item';
+        d.innerHTML = `<div class="form-group"><label>Season Number:</label><input type="number" name="episode_season[]" value="1" required /></div>
+                       <div class="form-group"><label>Episode Number:</label><input type="number" name="episode_number[]" required /></div>
+                       <div class="form-group"><label>Episode Title:</label><input type="text" name="episode_title[]" /></div>
+                       <hr><p><b>Provide ONE of the following:</b></p>
+                       <div class="form-group"><label>Telegram Message ID:</label><input type="number" name="episode_message_id[]" /></div>
+                       <p><b>OR</b> Watch Link:</p>
+                       <div class="form-group"><label>Watch Link (Embed):</label><input type="url" name="episode_watch_link[]" /></div>
+                       <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Episode</button>`;
+        c.appendChild(d);
+    }
+    document.addEventListener('DOMContentLoaded', toggleFields);
   </script>
 </body></html>
 """
@@ -495,11 +583,11 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         if year and search_type == "movie": search_url += f"&primary_release_year={year}"
         search_res = requests.get(search_url, timeout=5).json()
         if not search_res.get("results"): return None
-        
+
         tmdb_id = search_res["results"][0].get("id")
         detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}"
         res = requests.get(detail_url, timeout=5).json()
-        
+
         return {
             "tmdb_id": tmdb_id, "title": res.get("title") if search_type == "movie" else res.get("name"),
             "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None,
@@ -525,7 +613,7 @@ def home():
     if query:
         movies_list = list(movies.find({"title": {"$regex": query, "$options": "i"}}).sort('_id', -1))
         return render_template_string(index_html, movies=process_movie_list(movies_list), query=f'Results for "{query}"', is_full_page_list=True)
-    
+
     all_badges = sorted([badge for badge in movies.distinct("poster_badge") if badge])
     limit = 12
     context = {
@@ -544,11 +632,11 @@ def movie_detail(movie_id):
     try:
         movie = movies.find_one({"_id": ObjectId(movie_id)})
         if not movie: return "Content not found", 404
-        
+
         related_movies = []
         if movie.get("genres"):
             related_movies = list(movies.find({"genres": {"$in": movie["genres"]}, "_id": {"$ne": ObjectId(movie_id)}}).limit(12))
-            
+
         trailer_key = None
         if movie.get("tmdb_id") and TMDB_API_KEY:
             tmdb_type = "tv" if movie.get("type") == "series" else "movie"
@@ -556,10 +644,10 @@ def movie_detail(movie_id):
             try:
                 video_res = requests.get(video_url, timeout=3).json()
                 for v in video_res.get("results", []):
-                    if v.get('type') == 'Trailer' and v.get('site') == 'YouTube': 
+                    if v.get('type') == 'Trailer' and v.get('site') == 'YouTube':
                         trailer_key = v.get('key'); break
             except requests.RequestException: pass
-                
+
         return render_template_string(detail_html, movie=movie, trailer_key=trailer_key, related_movies=process_movie_list(related_movies))
     except Exception as e: return f"An error occurred: {e}", 500
 
@@ -601,27 +689,50 @@ def admin():
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
         tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
-        movie_data = {"title": request.form.get("title"), "type": content_type, **tmdb_data, "is_trending": False, "is_coming_soon": False}
-        
+        movie_data = {
+            "title": request.form.get("title"),
+            "type": content_type,
+            **tmdb_data,
+            "is_trending": False,
+            "is_coming_soon": False,
+            "links": [],
+            "files": [],
+            "episodes": []
+        }
+
         if content_type == "movie":
             movie_data["watch_link"] = request.form.get("watch_link", "")
+            # Manual Links
             links = []
             if request.form.get("link_480p"): links.append({"quality": "480p", "url": request.form.get("link_480p")})
             if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
             if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
             movie_data["links"] = links
-        else:
+            # Telegram Files
+            files = []
+            qualities = request.form.getlist('telegram_quality[]')
+            message_ids = request.form.getlist('telegram_message_id[]')
+            for i in range(len(qualities)):
+                if qualities[i] and message_ids[i]:
+                    files.append({"quality": qualities[i], "message_id": int(message_ids[i])})
+            movie_data["files"] = files
+        else: # Series
             episodes = []
             ep_numbers = request.form.getlist('episode_number[]')
             for i in range(len(ep_numbers)):
-                ep_links = []
-                if request.form.getlist('episode_link_480p[]')[i]: ep_links.append({"quality": "480p", "url": request.form.getlist('episode_link_480p[]')[i]})
-                if request.form.getlist('episode_link_720p[]')[i]: ep_links.append({"quality": "720p", "url": request.form.getlist('episode_link_720p[]')[i]})
-                episodes.append({"season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(ep_numbers[i]), "title": request.form.getlist('episode_title[]')[i], "watch_link": request.form.getlist('episode_watch_link[]')[i], "links": ep_links})
+                episode_doc = {
+                    "season": int(request.form.getlist('episode_season[]')[i]),
+                    "episode_number": int(ep_numbers[i]),
+                    "title": request.form.getlist('episode_title[]')[i],
+                    "watch_link": request.form.getlist('episode_watch_link[]')[i] or None,
+                    "message_id": int(request.form.getlist('episode_message_id[]')[i]) if request.form.getlist('episode_message_id[]')[i] else None
+                }
+                episodes.append(episode_doc)
             movie_data["episodes"] = episodes
+
         movies.insert_one(movie_data)
         return redirect(url_for('admin'))
-    
+
     all_content = process_movie_list(list(movies.find().sort('_id', -1)))
     feedback_list = process_movie_list(list(feedback.find().sort('timestamp', -1)))
     return render_template_string(admin_html, all_content=all_content, feedback_list=feedback_list)
@@ -629,7 +740,12 @@ def admin():
 @app.route('/admin/save_ads', methods=['POST'])
 @requires_auth
 def save_ads():
-    ad_codes = {"popunder_code": request.form.get("popunder_code", ""), "social_bar_code": request.form.get("social_bar_code", ""), "banner_ad_code": request.form.get("banner_ad_code", ""), "native_banner_code": request.form.get("native_banner_code", "")}
+    ad_codes = {
+        "popunder_code": request.form.get("popunder_code", ""),
+        "social_bar_code": request.form.get("social_bar_code", ""),
+        "banner_ad_code": request.form.get("banner_ad_code", ""),
+        "native_banner_code": request.form.get("native_banner_code", "")
+    }
     settings.update_one({}, {"$set": ad_codes}, upsert=True)
     return redirect(url_for('admin'))
 
@@ -638,30 +754,55 @@ def save_ads():
 def edit_movie(movie_id):
     movie_obj = movies.find_one({"_id": ObjectId(movie_id)})
     if not movie_obj: return "Movie not found", 404
+
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
-        update_data = {"title": request.form.get("title"), "type": content_type, "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true", "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(), "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], "poster_badge": request.form.get("poster_badge", "").strip() or None}
+        update_data = {
+            "title": request.form.get("title"), "type": content_type,
+            "is_trending": request.form.get("is_trending") == "true",
+            "is_coming_soon": request.form.get("is_coming_soon") == "true",
+            "poster": request.form.get("poster", "").strip(),
+            "overview": request.form.get("overview", "").strip(),
+            "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()],
+            "poster_badge": request.form.get("poster_badge", "").strip() or None
+        }
+
         if content_type == "movie":
             update_data["watch_link"] = request.form.get("watch_link", "")
+            # Manual Links
             links = []
             if request.form.get("link_480p"): links.append({"quality": "480p", "url": request.form.get("link_480p")})
             if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
             if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
             update_data["links"] = links
-            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"episodes": "", "files": ""}})
-        else:
+            # Telegram Files
+            files = []
+            qualities = request.form.getlist('telegram_quality[]')
+            message_ids = request.form.getlist('telegram_message_id[]')
+            for i in range(len(qualities)):
+                 if qualities[i] and message_ids[i]:
+                    files.append({"quality": qualities[i], "message_id": int(message_ids[i])})
+            update_data["files"] = files
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"episodes": ""}})
+
+        else: # Series
             episodes = []
             ep_numbers = request.form.getlist('episode_number[]')
             for i in range(len(ep_numbers)):
-                ep_links = []
-                if request.form.getlist('episode_link_480p[]')[i]: ep_links.append({"quality": "480p", "url": request.form.getlist('episode_link_480p[]')[i]})
-                if request.form.getlist('episode_link_720p[]')[i]: ep_links.append({"quality": "720p", "url": request.form.getlist('episode_link_720p[]')[i]})
-                episodes.append({"season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(ep_numbers[i]), "title": request.form.getlist('episode_title[]')[i], "watch_link": request.form.getlist('episode_watch_link[]')[i], "links": ep_links})
+                episode_doc = {
+                    "season": int(request.form.getlist('episode_season[]')[i]),
+                    "episode_number": int(ep_numbers[i]),
+                    "title": request.form.getlist('episode_title[]')[i],
+                    "watch_link": request.form.getlist('episode_watch_link[]')[i] or None,
+                    "message_id": int(request.form.getlist('episode_message_id[]')[i]) if request.form.getlist('episode_message_id[]')[i] else None
+                }
+                episodes.append(episode_doc)
             update_data["episodes"] = episodes
             movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"links": "", "watch_link": "", "files": ""}})
-        
+
         movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data})
         return redirect(url_for('admin'))
+
     return render_template_string(edit_html, movie=movie_obj)
 
 @app.route('/delete_movie/<movie_id>')
@@ -673,13 +814,17 @@ def delete_movie(movie_id):
 @app.route('/contact', methods=['GET', 'POST'])
 def contact():
     if request.method == 'POST':
-        feedback_data = {"type": request.form.get("type"), "content_title": request.form.get("content_title"), "message": request.form.get("message"), "email": request.form.get("email", "").strip(), "reported_content_id": request.form.get("reported_content_id"), "timestamp": datetime.utcnow()}
+        feedback_data = {
+            "type": request.form.get("type"), "content_title": request.form.get("content_title"),
+            "message": request.form.get("message"), "email": request.form.get("email", "").strip(),
+            "reported_content_id": request.form.get("reported_content_id"), "timestamp": datetime.utcnow()
+        }
         feedback.insert_one(feedback_data)
         return render_template_string(contact_html, message_sent=True)
     prefill_title, prefill_id = request.args.get('title', ''), request.args.get('report_id', '')
     prefill_type = 'Problem Report' if prefill_id else 'Movie Request'
     return render_template_string(contact_html, message_sent=False, prefill_title=prefill_title, prefill_id=prefill_id, prefill_type=prefill_type)
-    
+
 @app.route('/delete_feedback/<feedback_id>')
 @requires_auth
 def delete_feedback(feedback_id):
@@ -713,14 +858,18 @@ def telegram_webhook():
         if not tmdb_data or not tmdb_data.get("tmdb_id"):
             print(f"Webhook FATAL: Could not find TMDb data or tmdb_id for '{parsed_info['title']}'. Skipping.")
             return jsonify(status='ok', reason='no_tmdb_data_or_id')
-        
+
         tmdb_id = tmdb_data.get("tmdb_id")
         print(f"Webhook: Found TMDb Data: {tmdb_data.get('title')} (ID: {tmdb_id})")
 
         if parsed_info['type'] == 'series':
             existing_series = movies.find_one({"tmdb_id": tmdb_id})
-            new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id'], "quality": quality}
+            new_episode = {
+                "season": parsed_info['season'], "episode_number": parsed_info['episode'],
+                "message_id": post['message_id'], "quality": quality
+            }
             if existing_series:
+                # Remove episode with same season/ep number before adding new one to avoid duplicates
                 movies.update_one({"_id": existing_series['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
                 movies.update_one({"_id": existing_series['_id']}, {"$push": {"episodes": new_episode}})
                 print(f"Webhook: Updated series '{existing_series['title']}'.")
@@ -728,11 +877,12 @@ def telegram_webhook():
                 series_doc = {**tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False, "episodes": [new_episode]}
                 movies.insert_one(series_doc)
                 print(f"Webhook: Created new series '{tmdb_data.get('title')}'.")
-        
+
         else: # type == 'movie'
             existing_movie = movies.find_one({"tmdb_id": tmdb_id})
             new_file = {"quality": quality, "message_id": post['message_id']}
             if existing_movie:
+                # Remove file of the same quality before adding new one
                 movies.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
                 movies.update_one({"_id": existing_movie['_id']}, {"$push": {"files": new_file}})
                 print(f"Webhook: Updated movie '{existing_movie['title']}' with new quality.")
@@ -765,16 +915,16 @@ def telegram_webhook():
                         quality_to_find = payload_parts[1]
                         target_file = next((f for f in content.get('files', []) if f.get('quality') == quality_to_find), None)
                         if target_file: message_to_copy_id = target_file.get('message_id')
-                    
+
                     if message_to_copy_id:
                         payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_to_copy_id}
                         res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload)
                         res_json = res.json()
-                        
+
                         if res_json.get('ok'):
                             new_message_id = res_json['result']['message_id']
                             run_time = datetime.now() + timedelta(minutes=30)
-                            
+
                             scheduler.add_job(
                                 func=delete_message_after_delay,
                                 trigger='date',
@@ -786,14 +936,14 @@ def telegram_webhook():
                             print(f"Scheduled message {new_message_id} for deletion in chat {chat_id} at {run_time}")
                         else:
                              print(f"Failed to copy message: {res.text}")
-                             requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file. It might have been deleted."})
+                             requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file. It might have been deleted from the channel."})
                     else:
-                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Requested file/quality not found."})
+                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Requested file or episode not found."})
                 except Exception as e:
                     print(f"Error processing /start command: {e}")
-                    requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred."})
+                    requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred while processing your request."})
             else:
-                requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome! Browse our site to find content."})
+                requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome! Browse our site to find content and get download links."})
 
     return jsonify(status='ok')
 
