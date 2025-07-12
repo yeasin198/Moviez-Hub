@@ -599,7 +599,8 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 
 def parse_filename(filename):
     """
-    ফাইলের নাম থেকে মুভি/সিরিজের তথ্য এবং **সকল** ভাষা পার্স করে।
+    ফাইলের নাম থেকে মুভি/সিরিজের তথ্য এবং সকল ভাষা পার্স করার জন্য উন্নত ফাংশন।
+    এটি বিভিন্ন ফরম্যাট এবং অপ্রয়োজনীয় ট্যাগ হ্যান্ডেল করতে পারে।
     """
     LANGUAGE_MAP = {
         'hindi': 'Hindi', 'hin': 'Hindi',
@@ -613,37 +614,64 @@ def parse_filename(filename):
         'multi audio': ['Multi Audio']
     }
 
-    cleaned_name = filename.lower().replace('.', ' ').replace('_', ' ')
-    
+    # পরিষ্কার করার জন্য ডট, আন্ডারস্কোরকে স্পেস দিয়ে প্রতিস্থাপন
+    cleaned_name = filename.replace('.', ' ').replace('_', ' ').strip()
+
+    # ভাষা সনাক্তকরণ
     found_languages = []
+    temp_name_for_lang = cleaned_name.lower()
     for keyword, lang_name in LANGUAGE_MAP.items():
-        if re.search(r'\b' + re.escape(keyword) + r'\b', cleaned_name):
+        if re.search(r'\b' + re.escape(keyword) + r'\b', temp_name_for_lang):
             if isinstance(lang_name, list):
                 found_languages.extend(lang_name)
             else:
                 found_languages.append(lang_name)
-
     languages = sorted(list(set(found_languages))) if found_languages else []
 
-    base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|pack|complete|final|season).*$', '', cleaned_name, flags=re.I).strip()
-    for keyword in LANGUAGE_MAP.keys():
-        base_name = re.sub(r'\b' + re.escape(keyword) + r'\b', '', base_name, flags=re.I).strip()
-    
-    base_name = re.sub(r'\s+', ' ', base_name).strip()
-
-    series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', base_name, re.I)
+    # সিরিজ খোঁজার চেষ্টা (বিভিন্ন ফরম্যাটের জন্য)
+    # ফরম্যাট: S01E01, s01e01, Season 1 Episode 1
+    series_match = re.search(r'^(.*?)[\s\._-]*(?:S|Season)[\s\._-]?(\d{1,2})[\s\._-]*(?:E|Episode)[\s\._-]?(\d{1,3})', cleaned_name, re.I)
     if series_match:
         title = series_match.group(1).strip()
-        title = re.sub(r'\s*season\s*\d+\s*$', '', title, flags=re.I).strip()
-        return {'type': 'series', 'title': title.title(), 'season': int(series_match.group(2)), 'episode': int(series_match.group(3)), 'languages': languages}
+        season_num = int(series_match.group(2))
+        episode_num = int(series_match.group(3))
+        
+        # শিরোনাম থেকে সিজন নম্বর বা অন্যান্য অপ্রয়োজনীয় শব্দ বাদ দেওয়া
+        title = re.sub(r'\b(season|s)\s*\d+\s*$', '', title, flags=re.I).strip()
+        # শিরোনাম থেকে অন্যান্য ট্যাগ বাদ দেওয়া
+        title = re.sub(r'\[.*?\]', '', title).strip() # ব্র্যাকেটের ভেতরের সবকিছু
+        title = re.sub(r'\(.*?\)', '', title).strip() # প্রথম বন্ধনীর ভেতরের সবকিছু
+        
+        return {'type': 'series', 'title': title.title(), 'season': season_num, 'episode': episode_num, 'languages': languages}
+
+    # যদি সিরিজ না হয়, তাহলে মুভি হিসেবে পার্স করা হবে
+    # বছরের (সাল) অবস্থান বের করা
+    year_match = re.search(r'\(?(19[5-9]\d|20\d{2})\)?', cleaned_name)
+    year = None
+    title = cleaned_name
+    if year_match:
+        year = year_match.group(1)
+        # বছরের আগের অংশটুকু শিরোনাম হিসেবে নেওয়া
+        title = cleaned_name[:year_match.start()].strip()
     
-    movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', base_name, re.I)
-    if movie_match:
-        title = movie_match.group(1).strip().title()
-        title = re.sub(r'\s*\(\s*\)$', '', title).strip()
-        return {'type': 'movie', 'title': title, 'year': movie_match.group(2).strip(), 'languages': languages}
+    # অপ্রয়োজনীয় ট্যাগ এবং ভাষার কীওয়ার্ডগুলো বাদ দেওয়া
+    junk_patterns = [
+        r'\b(1080p|720p|480p|2160p|4k|uhd|web-?dl|webrip|brrip|bluray|dvdrip|hdrip|hdcam|camrip|x264|x265|hevc|avc|aac|ac3|dts|5\.1|7\.1)\b',
+        r'\b(complete|pack|final|uncut|extended|remastered)\b',
+        r'\[.*?\]', r'\(.*?\)'
+    ]
     
-    return {'type': 'movie', 'title': base_name.title(), 'year': None, 'languages': languages}
+    # শিরোনাম থেকে ভাষার কীওয়ার্ড বাদ দেওয়া
+    for lang_key in LANGUAGE_MAP.keys():
+        title = re.sub(r'\b' + lang_key + r'\b', '', title, flags=re.I)
+
+    for pattern in junk_patterns:
+        title = re.sub(pattern, '', title, flags=re.I)
+    
+    # শিরোনাম চূড়ান্তভাবে পরিষ্কার করা
+    title = re.sub(r'\s+', ' ', title).strip() # একাধিক স্পেস থাকলে একটিতে পরিণত করা
+
+    return {'type': 'movie', 'title': title.title(), 'year': year, 'languages': languages}
 
 
 def get_tmdb_details_from_api(title, content_type, year=None):
@@ -916,6 +944,10 @@ def telegram_webhook():
         print(f"Webhook: Received file: {filename}")
 
         parsed_info = parse_filename(filename)
+        if not parsed_info or not parsed_info.get('title'):
+            print(f"Webhook FATAL: Could not parse title from filename '{filename}'. Skipping.")
+            return jsonify(status='ok', reason='parsing_failed')
+            
         print(f"Webhook: Parsed Info: {parsed_info}")
 
         quality_match = re.search(r'(\d{3,4})p', filename, re.IGNORECASE)
