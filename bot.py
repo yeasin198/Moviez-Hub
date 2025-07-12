@@ -263,8 +263,6 @@ index_html = """
 </html>
 """
 
-# ### পরিবর্তন শুরু ###
-# detail_html টেমপ্লেটটি আপডেট করা হয়েছে ভাষার তথ্য দেখানোর জন্য।
 detail_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -363,7 +361,6 @@ function copyToClipboard(text) { navigator.clipboard.writeText(text).then(() => 
 </body>
 </html>
 """
-# ### পরিবর্তন শেষ ###
 
 genres_html = """
 <!DOCTYPE html>
@@ -482,8 +479,6 @@ hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray)
 </body></html>
 """
 
-# ### পরিবর্তন শুরু ###
-# edit_html টেমপ্লেটটি আপডেট করা হয়েছে ভাষার ইনপুট ফিল্ড যোগ করার জন্য।
 edit_html = """
 <!DOCTYPE html>
 <html><head><title>Edit Content - MovieZone</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
@@ -577,8 +572,6 @@ button[type="submit"], .add-btn { background: var(--netflix-red); color: white; 
   </script>
 </body></html>
 """
-# ### পরিবর্তন শেষ ###
-
 
 contact_html = """
 <!DOCTYPE html>
@@ -604,13 +597,10 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 # --- Helper Functions ---
 # ======================================================================
 
-# ### পরিবর্তন শুরু ###
-# ফাইলের নাম থেকে ভাষা সনাক্ত করার জন্য `parse_filename` ফাংশন আপডেট করা হয়েছে।
 def parse_filename(filename):
     """
-    ফাইলের নাম থেকে মুভি/সিরিজের তথ্য এবং ভাষা পার্স করে।
+    ফাইলের নাম থেকে মুভি/সিরিজের তথ্য এবং **সকল** ভাষা পার্স করে।
     """
-    # ভাষার কীওয়ার্ড এবং তাদেরมาตรฐาน নামের ম্যাপিং
     LANGUAGE_MAP = {
         'hindi': 'Hindi', 'hin': 'Hindi',
         'english': 'English', 'eng': 'English',
@@ -619,27 +609,27 @@ def parse_filename(filename):
         'telugu': 'Telugu', 'tel': 'Telugu',
         'kannada': 'Kannada', 'kan': 'Kannada',
         'malayalam': 'Malayalam', 'mal': 'Malayalam',
-        'dual audio': ['Hindi', 'English'],  # আপনি চাইলে এটি পরিবর্তন করতে পারেন
+        'dual audio': ['Hindi', 'English'],
         'multi audio': ['Multi Audio']
     }
 
     cleaned_name = filename.lower().replace('.', ' ').replace('_', ' ')
     
-    # ভাষা সনাক্তকরণ
     found_languages = []
     for keyword, lang_name in LANGUAGE_MAP.items():
-        if f' {keyword} ' in f' {cleaned_name} ':
+        if re.search(r'\b' + re.escape(keyword) + r'\b', cleaned_name):
             if isinstance(lang_name, list):
                 found_languages.extend(lang_name)
             else:
                 found_languages.append(lang_name)
-    # ডুপ্লিকেট ভাষা বাদ দেওয়া
-    languages = sorted(list(set(found_languages)))
 
-    # মূল নামের অংশ থেকে ভাষার কীওয়ার্ড বাদ দেওয়া
+    languages = sorted(list(set(found_languages))) if found_languages else []
+
     base_name = re.sub(r'(\d{3,4}p|web-?dl|hdrip|bluray|x264|x265|hevc|pack|complete|final|season).*$', '', cleaned_name, flags=re.I).strip()
     for keyword in LANGUAGE_MAP.keys():
         base_name = re.sub(r'\b' + re.escape(keyword) + r'\b', '', base_name, flags=re.I).strip()
+    
+    base_name = re.sub(r'\s+', ' ', base_name).strip()
 
     series_match = re.search(r'^(.*?)[\s\._-]*[sS](\d+)[eE](\d+)', base_name, re.I)
     if series_match:
@@ -649,10 +639,11 @@ def parse_filename(filename):
     
     movie_match = re.search(r'^(.*?)\s*\(?(\d{4})\)?', base_name, re.I)
     if movie_match:
-        return {'type': 'movie', 'title': movie_match.group(1).strip().title(), 'year': movie_match.group(2).strip(), 'languages': languages}
+        title = movie_match.group(1).strip().title()
+        title = re.sub(r'\s*\(\s*\)$', '', title).strip()
+        return {'type': 'movie', 'title': title, 'year': movie_match.group(2).strip(), 'languages': languages}
     
     return {'type': 'movie', 'title': base_name.title(), 'year': None, 'languages': languages}
-# ### পরিবর্তন শেষ ###
 
 
 def get_tmdb_details_from_api(title, content_type, year=None):
@@ -695,16 +686,13 @@ def home():
         return render_template_string(index_html, movies=process_movie_list(movies_list), query=f'Results for "{query}"', is_full_page_list=True)
 
     all_badges = sorted([badge for badge in movies.distinct("poster_badge") if badge])
-    # এই limit ভেরিয়েবলটি প্রতিটি সেকশনে কতগুলো আইটেম দেখাবে তা নিয়ন্ত্রণ করে।
     limit = 12
     context = {
         "trending_movies": process_movie_list(list(movies.find({"is_trending": True, "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "latest_movies": process_movie_list(list(movies.find({"type": "movie", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "latest_series": process_movie_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "coming_soon_movies": process_movie_list(list(movies.find({"is_coming_soon": True}).sort('_id', -1).limit(limit))),
-        # Hero Section (স্লাইডশো) এর জন্য কম আইটেম (৬টি) রাখা হয়েছে ডিজাইন ঠিক রাখার জন্য।
         "recently_added": process_movie_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(6))),
-        # "Recently Added" গ্রিড সেকশনের জন্য ১২টি আইটেম।
         "recently_added_full": process_movie_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "is_full_page_list": False, "query": "", "all_badges": all_badges
     }
@@ -718,7 +706,6 @@ def movie_detail(movie_id):
 
         related_movies = []
         if movie.get("genres"):
-            # "You might also like" সেকশনে ১২টি মুভি দেখানোর জন্য limit(12) ব্যবহার করা হয়েছে
             related_movies = list(movies.find({"genres": {"$in": movie["genres"]}, "_id": {"$ne": ObjectId(movie_id)}}).limit(12))
 
         trailer_key = None
@@ -781,18 +768,17 @@ def admin():
             "is_coming_soon": False,
             "links": [],
             "files": [],
-            "episodes": []
+            "episodes": [],
+            "languages": []
         }
 
         if content_type == "movie":
             movie_data["watch_link"] = request.form.get("watch_link", "")
-            # Manual Links
             links = []
             if request.form.get("link_480p"): links.append({"quality": "480p", "url": request.form.get("link_480p")})
             if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
             if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
             movie_data["links"] = links
-            # Telegram Files
             files = []
             qualities = request.form.getlist('telegram_quality[]')
             message_ids = request.form.getlist('telegram_message_id[]')
@@ -848,22 +834,17 @@ def edit_movie(movie_id):
             "poster": request.form.get("poster", "").strip(),
             "overview": request.form.get("overview", "").strip(),
             "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()],
-            # ### পরিবর্তন শুরু ###
-            # ফর্ম থেকে ভাষার তথ্য সংগ্রহ করা
             "languages": [lang.strip() for lang in request.form.get("languages", "").split(',') if lang.strip()],
-            # ### পরিবর্তন শেষ ###
             "poster_badge": request.form.get("poster_badge", "").strip() or None
         }
 
         if content_type == "movie":
             update_data["watch_link"] = request.form.get("watch_link", "")
-            # Manual Links
             links = []
             if request.form.get("link_480p"): links.append({"quality": "480p", "url": request.form.get("link_480p")})
             if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
             if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
             update_data["links"] = links
-            # Telegram Files
             files = []
             qualities = request.form.getlist('telegram_quality[]')
             message_ids = request.form.getlist('telegram_message_id[]')
@@ -949,9 +930,9 @@ def telegram_webhook():
 
         tmdb_id = tmdb_data.get("tmdb_id")
         print(f"Webhook: Found TMDb Data: {tmdb_data.get('title')} (ID: {tmdb_id})")
+        
+        new_languages_from_file = parsed_info.get('languages', [])
 
-        # ### পরিবর্তন শুরু ###
-        # ডেটাবেস আপডেট করার সময় ভাষার তথ্য যোগ করা হয়েছে
         if parsed_info['type'] == 'series':
             existing_series = movies.find_one({"tmdb_id": tmdb_id})
             new_episode = {
@@ -959,19 +940,17 @@ def telegram_webhook():
                 "message_id": post['message_id'], "quality": quality
             }
             if existing_series:
-                # ডুপ্লিকেট এড়ানোর জন্য পুরনো এপিসোড মুছে নতুন করে যোগ করা হচ্ছে
-                movies.update_one({"_id": existing_series['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
-                
-                # নতুন এপিসোড এবং ভাষা যোগ করা হচ্ছে
-                current_languages = existing_series.get('languages', [])
-                new_languages = parsed_info.get('languages', [])
-                updated_languages = sorted(list(set(current_languages + new_languages)))
-                
                 movies.update_one(
                     {"_id": existing_series['_id']}, 
-                    {"$push": {"episodes": new_episode}, "$set": {"languages": updated_languages}}
+                    {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}}
                 )
-                print(f"Webhook: Updated series '{existing_series['title']}' with new episode and languages {updated_languages}.")
+                
+                update_query = {"$push": {"episodes": new_episode}}
+                if new_languages_from_file:
+                    update_query["$addToSet"] = {"languages": {"$each": new_languages_from_file}}
+
+                movies.update_one({"_id": existing_series['_id']}, update_query)
+                print(f"Webhook: Updated series '{existing_series['title']}' with new episode and languages.")
             else:
                 series_doc = {
                     **tmdb_data, 
@@ -979,7 +958,7 @@ def telegram_webhook():
                     "is_trending": False, 
                     "is_coming_soon": False, 
                     "episodes": [new_episode],
-                    "languages": parsed_info.get('languages', [])
+                    "languages": new_languages_from_file
                 }
                 movies.insert_one(series_doc)
                 print(f"Webhook: Created new series '{tmdb_data.get('title')}'.")
@@ -988,19 +967,17 @@ def telegram_webhook():
             existing_movie = movies.find_one({"tmdb_id": tmdb_id})
             new_file = {"quality": quality, "message_id": post['message_id']}
             if existing_movie:
-                # ডুপ্লিকেট এড়ানোর জন্য একই কোয়ালিটির পুরনো ফাইল মুছে নতুন করে যোগ করা হচ্ছে
-                movies.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
-                
-                # নতুন ফাইল এবং ভাষা যোগ করা হচ্ছে
-                current_languages = existing_movie.get('languages', [])
-                new_languages = parsed_info.get('languages', [])
-                updated_languages = sorted(list(set(current_languages + new_languages)))
-
                 movies.update_one(
-                    {"_id": existing_movie['_id']},
-                    {"$push": {"files": new_file}, "$set": {"languages": updated_languages}}
+                    {"_id": existing_movie['_id']}, 
+                    {"$pull": {"files": {"quality": new_file['quality']}}}
                 )
-                print(f"Webhook: Updated movie '{existing_movie['title']}' with new file and languages {updated_languages}.")
+                
+                update_query = {"$push": {"files": new_file}}
+                if new_languages_from_file:
+                    update_query["$addToSet"] = {"languages": {"$each": new_languages_from_file}}
+                
+                movies.update_one({"_id": existing_movie['_id']}, update_query)
+                print(f"Webhook: Updated movie '{existing_movie['title']}' with new file and languages.")
             else:
                 movie_doc = {
                     **tmdb_data,
@@ -1008,11 +985,10 @@ def telegram_webhook():
                     "is_trending": False, 
                     "is_coming_soon": False,
                     "files": [new_file],
-                    "languages": parsed_info.get('languages', [])
+                    "languages": new_languages_from_file
                 }
                 movies.insert_one(movie_doc)
                 print(f"Webhook: Created new movie '{tmdb_data.get('title')}'.")
-        # ### পরিবর্তন শেষ ###
 
     elif 'message' in data:
         message = data['message']
