@@ -96,6 +96,11 @@ scheduler.start()
 # ======================================================================
 # --- HTML টেমপ্লেট ---
 # ======================================================================
+
+# ##################################################################
+# ########              START: UPDATED index_html             ########
+# ##################################################################
+
 index_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -187,6 +192,54 @@ index_html = """
       .telegram-join-section { margin: 50px -15px -30px -15px; }
       .telegram-join-section h2 { font-size: 2rem; } .telegram-join-section p { font-size: 1rem; }
   }
+
+  /* --- NEW: Modal Styles --- */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    display: none; /* Initially hidden */
+    align-items: center; justify-content: center;
+    z-index: 1001;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+  }
+  .modal-overlay.show { display: flex; }
+  .modal-content {
+    background-color: #1f1f1f; color: var(--text-light);
+    padding: 25px; border-radius: 12px;
+    width: 90%; max-width: 380px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    border: 1px solid #333;
+    position: relative;
+    animation: fadeIn 0.3s ease-out;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+  .modal-close {
+    position: absolute; top: 10px; right: 15px;
+    font-size: 28px; font-weight: bold; color: #aaa;
+    cursor: pointer; transition: color 0.2s;
+  }
+  .modal-close:hover { color: white; }
+  .modal-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; line-height: 1.3; }
+  .modal-links-container { max-height: 300px; overflow-y: auto; margin-right: -10px; padding-right: 10px; }
+  .modal-link {
+    display: flex; align-items: center; gap: 12px;
+    text-decoration: none; color: white;
+    background: #333;
+    padding: 12px 15px; border-radius: 8px;
+    margin-bottom: 10px; font-weight: 500;
+    transition: all 0.2s ease;
+  }
+  .modal-link:hover { transform: scale(1.03); background-color: #444; }
+  .modal-link.play-btn { background-color: var(--netflix-red); }
+  .modal-link.play-btn:hover { background-color: #c40812; }
+  .modal-link.telegram-btn { background-color: #2AABEE; }
+  .modal-link.telegram-btn:hover { background-color: #1e96d1; }
+  .modal-link.info-btn { background: rgba(109, 109, 110, 0.7); margin-top: 15px; }
+  .modal-link.info-btn:hover { background: rgba(109, 109, 110, 0.9); }
+  .modal-link i { font-size: 1.1rem; width: 20px; text-align: center; }
+  /* --- END: Modal Styles --- */
+
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
@@ -194,11 +247,19 @@ index_html = """
 <header class="main-nav"><a href="{{ url_for('home') }}" class="logo">MovieZone</a><form method="GET" action="/" class="search-form"><input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" /></form></header>
 <main>
   {% macro render_movie_card(m) %}
-    <a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">
+    {# --- MODIFIED: Changed <a> to <div> and added data attributes --- #}
+    <div class="movie-card"
+        data-title="{{ m.title }}"
+        data-detail-url="{{ url_for('movie_detail', movie_id=m._id) }}"
+        data-watch-link="{{ m.watch_link or '' }}"
+        data-files="{{ m.files | tojson | safe if m.files else '[]' }}"
+        data-links="{{ m.links | tojson | safe if m.links else '[]' }}"
+        data-type="{{ m.type }}"
+        data-id="{{ m._id }}">
       {% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}
       <img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}">
       <div class="card-info-overlay"><h4 class="card-info-title">{{ m.title }}</h4></div>
-    </a>
+    </div>
   {% endmacro %}
 
   {% if is_full_page_list %}
@@ -252,16 +313,125 @@ index_html = """
   {% endif %}
 </main>
 <nav class="bottom-nav"><a href="{{ url_for('home') }}" class="nav-item {% if request.endpoint == 'home' %}active{% endif %}"><i class="fas fa-home"></i><span>Home</span></a><a href="{{ url_for('genres_page') }}" class="nav-item {% if request.endpoint == 'genres_page' %}active{% endif %}"><i class="fas fa-layer-group"></i><span>Genres</span></a><a href="{{ url_for('contact') }}" class="nav-item {% if request.endpoint == 'contact' %}active{% endif %}"><i class="fas fa-envelope"></i><span>Request</span></a></nav>
+
+<!-- --- NEW: Modal HTML Structure --- -->
+<div class="modal-overlay" id="linkModal">
+  <div class="modal-content">
+    <span class="modal-close" id="modalCloseBtn">×</span>
+    <h3 class="modal-title" id="modalTitle">Movie Title</h3>
+    <div class="modal-links-container" id="modalLinks">
+      <!-- Links will be dynamically inserted here -->
+    </div>
+    <a href="#" id="modalInfoLink" class="modal-link info-btn" target="_blank">
+        <i class="fas fa-info-circle"></i>
+        <span>More Info & Details</span>
+    </a>
+  </div>
+</div>
+
 <script>
     const nav = document.querySelector('.main-nav');
     window.addEventListener('scroll', () => { window.scrollY > 50 ? nav.classList.add('scrolled') : nav.classList.remove('scrolled'); });
-    document.addEventListener('DOMContentLoaded', function() { const slides = document.querySelectorAll('.hero-slide'); if (slides.length > 1) { let currentSlide = 0; const showSlide = (index) => slides.forEach((s, i) => s.classList.toggle('active', i === index)); setInterval(() => { currentSlide = (currentSlide + 1) % slides.length; showSlide(currentSlide); }, 5000); } });
+    document.addEventListener('DOMContentLoaded', function() {
+        const slides = document.querySelectorAll('.hero-slide');
+        if (slides.length > 1) {
+            let currentSlide = 0;
+            const showSlide = (index) => slides.forEach((s, i) => s.classList.toggle('active', i === index));
+            setInterval(() => {
+                currentSlide = (currentSlide + 1) % slides.length;
+                showSlide(currentSlide);
+            }, 5000);
+        }
+
+        // --- NEW: Modal JavaScript Logic ---
+        const modal = document.getElementById('linkModal');
+        if (modal) {
+            const modalTitle = document.getElementById('modalTitle');
+            const modalLinksContainer = document.getElementById('modalLinks');
+            const modalInfoLink = document.getElementById('modalInfoLink');
+            const closeModalBtn = document.getElementById('modalCloseBtn');
+            const movieCards = document.querySelectorAll('.movie-card');
+
+            movieCards.forEach(card => {
+                card.addEventListener('click', () => {
+                    const title = card.dataset.title;
+                    const detailUrl = card.dataset.detailUrl;
+                    const watchLink = card.dataset.watchLink;
+                    const files = JSON.parse(card.dataset.files);
+                    const links = JSON.parse(card.dataset.links);
+                    const type = card.dataset.type;
+                    const id = card.dataset.id;
+                    const botUsername = '{{ bot_username }}';
+
+                    // Populate modal
+                    modalTitle.textContent = title;
+                    modalInfoLink.href = detailUrl;
+                    modalLinksContainer.innerHTML = ''; // Clear previous links
+
+                    // If it's a series, don't show download links. Guide to detail page.
+                    if (type === 'series') {
+                         const seriesLink = document.createElement('a');
+                         seriesLink.href = detailUrl;
+                         seriesLink.className = 'modal-link telegram-btn';
+                         seriesLink.innerHTML = `<i class="fas fa-list-ul"></i> <span>View All Episodes</span>`;
+                         modalLinksContainer.appendChild(seriesLink);
+                    } else {
+                        // Add Online Play button
+                        if (watchLink) {
+                            const playBtn = document.createElement('a');
+                            playBtn.href = `/watch/${id}`;
+                            playBtn.className = 'modal-link play-btn';
+                            playBtn.target = '_blank';
+                            playBtn.innerHTML = `<i class="fas fa-play"></i> <span>Online Play</span>`;
+                            modalLinksContainer.appendChild(playBtn);
+                        }
+
+                        // Add Telegram file buttons
+                        files.forEach(file => {
+                            const teleBtn = document.createElement('a');
+                            teleBtn.href = `https://t.me/${botUsername}?start=${id}_${file.quality}`;
+                            teleBtn.className = 'modal-link telegram-btn';
+                            teleBtn.target = '_blank';
+                            teleBtn.innerHTML = `<i class="fab fa-telegram-plane"></i> <span>Get ${file.quality}</span>`;
+                            modalLinksContainer.appendChild(teleBtn);
+                        });
+
+                        // Add direct download buttons
+                        links.forEach(link => {
+                            const dlBtn = document.createElement('a');
+                            dlBtn.href = link.url;
+                            dlBtn.className = 'modal-link';
+                            dlBtn.target = '_blank';
+                            dlBtn.innerHTML = `<i class="fas fa-download"></i> <span>Download ${link.quality}</span>`;
+                            modalLinksContainer.appendChild(dlBtn);
+                        });
+                    }
+                    
+                    modal.classList.add('show');
+                });
+            });
+
+            // Close modal functionality
+            const closeModal = () => modal.classList.remove('show');
+            closeModalBtn.addEventListener('click', closeModal);
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    closeModal();
+                }
+            });
+        }
+    });
 </script>
 {% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
 {% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
 </body>
 </html>
 """
+
+# ##################################################################
+# ########               END: UPDATED index_html              ########
+# ##################################################################
+
 
 detail_html = """
 <!DOCTYPE html>
