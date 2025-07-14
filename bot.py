@@ -31,6 +31,7 @@ ADMIN_CHANNEL_ID = os.environ.get("ADMIN_CHANNEL_ID")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 VITE_SITENAME = os.environ.get("VITE_SITENAME", "MovieZone")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "YourBotUsername") # আপনার বটে ইউজারনেম যোগ করুন
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 app = Flask(__name__)
@@ -82,7 +83,6 @@ base_layout_html = """
         
         main { padding-top: 100px; }
         
-        /* Movie Grid - মোবাইল ডিভাইসে ২টি কলাম */
         .grid-title { font-size: 1.5rem; font-weight: 500; margin-bottom: 20px; }
         .movie-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
         
@@ -100,7 +100,6 @@ base_layout_html = """
         .movie-card img { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; }
         .movie-card-title { padding: 10px; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         
-        /* Hero Section */
         .hero-section { height: 60vh; position: relative; display: flex; align-items: flex-end; margin-bottom: 40px; border-radius: 10px; overflow: hidden; }
         .hero-bg-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
         .hero-gradient { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to top, var(--main-bg) 5%, transparent 50%); z-index: -1; }
@@ -108,7 +107,6 @@ base_layout_html = """
         .hero-title { font-size: 2rem; font-weight: 700; margin-bottom: 10px; text-shadow: 2px 2px 8px rgba(0,0,0,0.7); }
         .hero-button { padding: 10px 25px; border-radius: 5px; font-weight: 700; text-decoration: none; border: none; cursor: pointer; transition: transform 0.2s; background-color: var(--accent); color: black; display: inline-flex; align-items: center; gap: 8px; }
 
-        /* Detail Page */
         .detail-container { position: relative; display: flex; align-items: center; padding: 20px 0; }
         .detail-backdrop { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: blur(15px) brightness(0.3); transform: scale(1.1); z-index: -1; }
         .detail-content { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 20px; width: 100%; }
@@ -118,12 +116,13 @@ base_layout_html = """
         .detail-overview { max-width: 600px; line-height: 1.6; margin-bottom: 20px; }
         .detail-actions-title { font-size: 1.5rem; margin: 20px 0 15px 0; border-bottom: 2px solid var(--accent); display: inline-block; padding-bottom: 5px; }
         .detail-actions { display: flex; flex-direction: column; align-items: center; gap: 1rem; width: 100%; }
-        .action-button { display:flex; justify-content: center; align-items:center; gap:0.5rem; background-color: #333; color: white; padding: 12px 25px; border-radius: 5px; width: 90%; max-width: 300px; font-weight: 500; }
+        .action-button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem; width: 100%; }
+        .action-button { display:flex; justify-content: center; align-items:center; gap:0.5rem; background-color: #333; color: white; padding: 12px 20px; border-radius: 5px; font-weight: 500; text-align: center; }
         .action-button.play { background-color: var(--accent); color: black; }
+        .action-button.telegram { background-color: #2AABEE; }
 
         .footer { padding: 40px 20px; border-top: 1px solid #222; margin-top: 40px; text-align: center; color: var(--text-grey); font-size: 0.9rem; }
 
-        /* ডেস্কটপ এবং বড় স্ক্রিনের জন্য মিডিয়া কোয়েরি */
         @media (min-width: 768px) {
             .container { padding: 0 40px; }
             .nav-links { display: flex; gap: 2rem; }
@@ -135,7 +134,7 @@ base_layout_html = """
             .detail-poster img { width: 300px; max-width: none; }
             .detail-meta { justify-content: flex-start; }
             .detail-actions { align-items: flex-start; }
-            .action-button { width: auto; }
+            .action-button-group { justify-content: flex-start; }
         }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
@@ -207,9 +206,10 @@ detail_html_content = """
             <div class="detail-actions">
                 {% if content.type == 'movie' and content.files %}
                     {% for file in content.files|sort(attribute='quality', reverse=True) %}
-                        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:1rem;">
-                            <a href="{{ url_for('player', movie_id=content._id, quality=file.quality) }}" target="_blank" class="action-button play"><i class="fas fa-play"></i> Play {{ file.quality }}</a>
+                        <div class="action-button-group">
+                            <a href="{{ url_for('play_movie', movie_id=content._id, quality=file.quality) }}" target="_blank" class="action-button play"><i class="fas fa-play"></i> Play {{ file.quality }}</a>
                             <a href="{{ url_for('download_file', movie_id=content._id, quality=file.quality) }}" class="action-button"><i class="fas fa-download"></i> Download {{ file.quality }}</a>
+                            <a href="https://t.me/{{ bot_username }}?start=file_{{ content._id }}_{{ file.quality }}" target="_blank" class="action-button telegram"><i class="fab fa-telegram"></i> Get on Telegram</a>
                         </div>
                     {% endfor %}
                 {% else %}<p>No files available yet.</p>{% endif %}
@@ -218,7 +218,6 @@ detail_html_content = """
     </div>
 </div>
 """
-player_html = """<!DOCTYPE html><html><head><title>Watching: {{ title }}</title><style>body,html{margin:0;padding:0;width:100%;height:100%;background-color:#000;overflow:hidden}video{width:100%;height:100%;object-fit:contain}</style></head><body><video controls autoplay controlsList="nodownload"><source src="{{ url_for('stream_file', movie_id=movie_id, quality=quality) }}" type="video/mp4">Your browser does not support this video.</video></body></html>"""
 
 # ======================================================================
 # --- Helper & Core Functions ---
@@ -226,10 +225,14 @@ player_html = """<!DOCTYPE html><html><head><title>Watching: {{ title }}</title>
 def render_page(content_template, **kwargs):
     page_content = render_template_string(content_template, **kwargs)
     return render_template_string(base_layout_html, page_content=page_content, **kwargs)
+
 @app.context_processor
-def inject_global_vars(): return dict(sitename=VITE_SITENAME, now=datetime.utcnow())
+def inject_global_vars(): 
+    return dict(sitename=VITE_SITENAME, now=datetime.utcnow(), bot_username=BOT_USERNAME)
+
 def check_auth(username, password): return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 def authenticate(): return Response('Could not verify access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
 @wraps(check_auth)
 def requires_auth(f):
     @wraps(f)
@@ -241,6 +244,7 @@ def requires_auth(f):
 try:
     client = MongoClient(MONGO_URI); db = client["movie_db"]; movies_collection = db["movies"]; print("SUCCESS: Connected to MongoDB!")
 except Exception as e: print(f"FATAL: DB Error: {e}"); sys.exit(1)
+
 def parse_filename(filename):
     cleaned_name = re.sub(r'[\._]', ' ', filename)
     series_match = re.search(r'^(.*?)[\s\._-]*(?:S|Season)[\s\._-]?(\d{1,2})[\s\._-]*(?:E|Episode)[\s\._-]?(\d{1,3})', cleaned_name, re.I)
@@ -255,6 +259,7 @@ def parse_filename(filename):
     for junk in junk_words: title = re.sub(r'\b' + junk + r'\b', '', title, flags=re.I)
     title = re.sub(r'\[.*?\]|\(.*?\)', '', title).strip()
     return {'type': 'movie', 'title': title.strip().title(), 'year': year}
+
 def get_tmdb_details_from_api(title, content_type, year=None):
     if not TMDB_API_KEY: return None
     search_type = "tv" if content_type == "series" else "movie"
@@ -271,21 +276,37 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         return {"tmdb_id": tmdb_id, "title": res.get("title") or res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "backdrop": f"https://image.tmdb.org/t/p/w1280{res.get('backdrop_path')}" if res.get('backdrop_path') else None, "overview": res.get("overview"), "release_year": (res.get("release_date") or res.get("first_air_date", ""))\
 .split('-')[0], "genres": [g['name'] for g in res.get("genres", [])], "rating": res.get("vote_average"), "media_type": search_type}
     except Exception as e: print(f"TMDb API error for '{title}': {e}"); return None
+
 def process_movie_list(movie_list):
     processed = []
     for item in movie_list: 
         if '_id' in item: item["_id"] = str(item["_id"])
         processed.append(item)
     return processed
+
 def get_file_details(movie_id, quality):
     try:
         movie = movies_collection.find_one({"_id": ObjectId(movie_id)})
         if not movie: return None, None
-        file_id, filename = None, f"{movie.get('title', 'video')}.mkv"
+        file_id, filename = None, f"{movie.get('title', 'video')}_{quality}.mkv"
         target_file = next((f for f in movie.get('files', []) if f.get('quality') == quality), None)
         if target_file: file_id = target_file.get('file_id')
         return file_id, filename
     except InvalidId: return None, None
+
+def get_telegram_file_url(file_id):
+    if not file_id: return None
+    try:
+        file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile?file_id={file_id}").json()
+        if not file_info_res.get('ok'):
+             print(f"Telegram API Error: {file_info_res.get('description')}")
+             return None
+        file_path = file_info_res.get('result', {}).get('file_path')
+        if not file_path: return None
+        return f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+    except Exception as e:
+        print(f"Error getting Telegram file URL: {e}")
+        return None
 
 # ======================================================================
 # --- Main Website Routes ---
@@ -304,12 +325,33 @@ def movie_detail(tmdb_id):
     seo = {"title": f"{content['title']} - {VITE_SITENAME}", "description": content['overview'], "keywords": f"{content['title']}, watch online"}
     return render_page(detail_html_content, content=process_movie_list([content])[0], seo=seo)
 
-@app.route('/player/<movie_id>/<quality>')
-def player(movie_id, quality):
+@app.route('/play/<movie_id>/<quality>')
+def play_movie(movie_id, quality):
+    file_id, _ = get_file_details(movie_id, quality)
+    if not file_id: return "File not found.", 404
+    
+    file_url = get_telegram_file_url(file_id)
+    if not file_url: return "Could not retrieve file URL from Telegram. It might have expired or been deleted.", 500
+    
+    return redirect(file_url)
+
+@app.route('/download/<movie_id>/<quality>')
+def download_file(movie_id, quality):
+    file_id, filename = get_file_details(movie_id, quality)
+    if not file_id: return "File not found.", 404
+
+    file_url = get_telegram_file_url(file_id)
+    if not file_url: return "Could not retrieve file URL from Telegram.", 500
+
     try:
-        movie = movies_collection.find_one({"_id": ObjectId(movie_id)})
-        return render_template_string(player_html, title=movie['title'], movie_id=movie_id, quality=quality) if movie else ("Movie not found", 404)
-    except InvalidId: return "Invalid Movie ID", 400
+        req = requests.get(file_url, stream=True, timeout=60)
+        headers = {
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Length': req.headers.get('content-length')
+        }
+        return Response(stream_with_context(req.iter_content(chunk_size=1024*1024)), headers=headers)
+    except Exception as e: return f"Download Error: {e}", 500
 
 # Placeholder pages
 @app.route('/movies')
@@ -319,60 +361,50 @@ def series_page(): return "All Series Page - Coming Soon!"
 @app.route('/search')
 def search_page(): return f"Search results for: {request.args.get('q', '')} - Coming Soon!"
 
-@app.route('/stream/<movie_id>/<quality>')
-def stream_file(movie_id, quality):
-    file_id, _ = get_file_details(movie_id, quality)
-    if not file_id: return "File not found.", 404
-    try:
-        file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile?file_id={file_id}").json()
-        file_path = file_info_res.get('result', {}).get('file_path')
-        if not file_path: return f"Telegram API Error: {file_info_res.get('description', 'Could not get file path.')}", 500
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        req = requests.get(file_url, stream=True, timeout=60)
-        return Response(stream_with_context(req.iter_content(chunk_size=1024*1024)), content_type=req.headers['content-type'])
-    except Exception as e: return f"Streaming Error: {e}", 500
-
-@app.route('/download/<movie_id>/<quality>')
-def download_file(movie_id, quality):
-    file_id, filename = get_file_details(movie_id, quality)
-    if not file_id: return "File not found.", 404
-    try:
-        file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile?file_id={file_id}").json()
-        file_path = file_info_res.get('result', {}).get('file_path')
-        if not file_path: return f"Telegram API Error: {file_info_res.get('description', 'Could not get file path.')}", 500
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        req = requests.get(file_url, stream=True, timeout=60)
-        headers = {'Content-Type': 'application/octet-stream', 'Content-Disposition': f'attachment; filename="{filename}"'}
-        return Response(stream_with_context(req.iter_content(chunk_size=1024*1024)), headers=headers)
-    except Exception as e: return f"Download Error: {e}", 500
-
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json();
-    if 'channel_post' not in data: return jsonify(status='ok')
-    post = data['channel_post']
-    if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return jsonify(status='ok')
-    file_doc = post.get('video') or post.get('document')
-    if not (file_doc and file_doc.get('file_name')): return jsonify(status='ok')
-    file_id, filename = file_doc.get('file_id'), file_doc.get('file_name'); print(f"Webhook: Received file '{filename}'")
-    parsed_info = parse_filename(filename)
-    if not parsed_info or not parsed_info.get('title'): print(f"Webhook FATAL: Could not parse title from '{filename}'"); return jsonify(status='ok')
-    print(f"Webhook: Parsed info: {parsed_info}")
-    tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-    if not tmdb_data: print(f"Webhook FATAL: Could not find TMDb data for '{parsed_info['title']}'"); return jsonify(status='ok')
-    print(f"Webhook: Found TMDb data for '{tmdb_data['title']}'")
-    quality_match = re.search(r'(\d{3,4})p', filename, re.I); quality = quality_match.group(1) + "p" if quality_match else "HD"
-    if parsed_info['type'] == 'movie':
-        existing_movie = movies_collection.find_one({"tmdb_id": tmdb_data['tmdb_id']})
-        new_file_data = {"quality": quality, "file_id": file_id, "name": filename}
-        if existing_movie:
-            movies_collection.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": quality}}})
-            movies_collection.update_one({"_id": existing_movie['_id']}, {"$push": {"files": new_file_data}})
-            print(f"Webhook: Updated movie '{tmdb_data['title']}'")
-        else:
-            movie_doc = {**tmdb_data, "type": "movie", "files": [new_file_data], "created_at": datetime.utcnow()}
-            movies_collection.insert_one(movie_doc)
-            print(f"Webhook: Created new movie '{tmdb_data['title']}'.")
+    if 'channel_post' in data:
+        post = data['channel_post']
+        if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return jsonify(status='ok')
+        file_doc = post.get('video') or post.get('document')
+        if not (file_doc and file_doc.get('file_name')): return jsonify(status='ok')
+        file_id, filename = file_doc.get('file_id'), file_doc.get('file_name'); print(f"Webhook: Received file '{filename}'")
+        parsed_info = parse_filename(filename)
+        if not parsed_info or not parsed_info.get('title'): print(f"Webhook FATAL: Could not parse title from '{filename}'"); return jsonify(status='ok')
+        print(f"Webhook: Parsed info: {parsed_info}")
+        tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
+        if not tmdb_data: print(f"Webhook FATAL: Could not find TMDb data for '{parsed_info['title']}'"); return jsonify(status='ok')
+        print(f"Webhook: Found TMDb data for '{tmdb_data['title']}'")
+        quality_match = re.search(r'(\d{3,4})p', filename, re.I); quality = quality_match.group(1) + "p" if quality_match else "HD"
+        if parsed_info['type'] == 'movie':
+            existing_movie = movies_collection.find_one({"tmdb_id": tmdb_data['tmdb_id']})
+            new_file_data = {"quality": quality, "file_id": file_id, "name": filename}
+            if existing_movie:
+                movies_collection.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": quality}}})
+                movies_collection.update_one({"_id": existing_movie['_id']}, {"$push": {"files": new_file_data}})
+                print(f"Webhook: Updated movie '{tmdb_data['title']}'")
+            else:
+                movie_doc = {**tmdb_data, "type": "movie", "files": [new_file_data], "created_at": datetime.utcnow()}
+                movies_collection.insert_one(movie_doc)
+                print(f"Webhook: Created new movie '{tmdb_data['title']}'.")
+    
+    elif 'message' in data:
+        message = data.get('message', {})
+        chat_id = message.get('chat', {}).get('id')
+        text = message.get('text', '')
+        if text.startswith('/start file_'):
+            try:
+                _, doc_id_str, quality = text.split('_')
+                file_id, _ = get_file_details(doc_id_str, quality)
+                if file_id:
+                    requests.post(f"{TELEGRAM_API_URL}/copyMessage", json={'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': file_id})
+                else:
+                    requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Sorry, the requested file could not be found."})
+            except Exception as e:
+                print(f"Error processing start command: {e}")
+                requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An error occurred."})
+
     return jsonify(status='ok')
     
 @app.route('/admin')
