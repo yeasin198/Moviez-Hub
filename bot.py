@@ -14,6 +14,7 @@ from flask import (
 )
 from pymongo import MongoClient, DESCENDING
 from bson.objectid import ObjectId
+from bson.errors import InvalidId
 from functools import wraps
 from datetime import datetime
 from dotenv import load_dotenv
@@ -50,13 +51,11 @@ base_layout_html = """
     <link rel="icon" type="image/svg+xml" href="https://nlmovies.vercel.app/src/assets/images/logo.png" />
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
-        :root { --main-bg: #101010; --card-bg: #181818; --text-light: #fff; --text-grey: #aaa; --accent-red: #e50914; --other-color: #50B498; --btn-color: #1f1f1f; --bg-color-secondary: #333333; }
+        :root { --main-bg: #101010; --card-bg: #181818; --text-light: #fff; --text-grey: #aaa; --accent-red: #e50914; --other-color: #50B498; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Roboto', sans-serif; background-color: var(--main-bg); color: var(--text-light); }
         .container { max-width: 1400px; margin: 0 auto; padding: 0 20px; }
         a { text-decoration: none; color: inherit; }
-        .flex { display: flex; } .flex-col { flex-direction: column; } .items-center { align-items: center; } .justify-center { justify-content: center; } .justify-between { justify-content: space-between; }
-        .gap-2 { gap: 0.5rem; } .gap-4 { gap: 1rem; } .mt-4 { margin-top: 1rem; } .mb-4 { margin-bottom: 1rem; }
         .header { padding: 1rem 2.5rem; background-color: rgba(16, 16, 16, 0.8); backdrop-filter: blur(10px); position: fixed; top: 0; left: 0; right: 0; z-index: 50; }
         .logo { font-size: 2rem; font-weight: 700; color: var(--other-color); }
         .search-form input { background: #222; border: 1px solid #333; color: var(--text-light); padding: 10px 15px; border-radius: 5px; font-size: 1rem; width: 100%; }
@@ -98,10 +97,9 @@ base_layout_html = """
 </body>
 </html>
 """
-
 home_html_content = """
     {% if hero_movie %}
-    <section class="hero-section" style="height: 70vh; position: relative; display: flex; align-items: flex-end; margin-bottom: 40px; border-radius: 10px; overflow: hidden;">
+    <section style="height: 70vh; position: relative; display: flex; align-items: flex-end; margin-bottom: 40px; border-radius: 10px; overflow: hidden;">
         <img src="{{ hero_movie.backdrop or hero_movie.poster }}" alt="{{ hero_movie.title }} backdrop" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2;">
         <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to top, var(--main-bg) 10%, transparent 50%); z-index: -1;"></div>
         <div style="padding: 40px; position: relative; z-index: 1;">
@@ -124,8 +122,6 @@ home_html_content = """
         {% endfor %}
     </div>
 """
-
-# ############# START: UPDATED detail_html_content #############
 detail_html_content = """
 <div style="position: relative; min-height: 80vh; display: flex; align-items: center; padding: 40px;">
     <img src="{{ content.backdrop or content.poster or '' }}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: blur(10px) brightness(0.4); transform: scale(1.1);" alt="">
@@ -135,11 +131,7 @@ detail_html_content = """
             <h1 style="font-size: 3rem; margin-bottom: 20px;">{{ content.title }}</h1>
             <div style="display:flex; flex-wrap:wrap; align-items:center; gap:1rem; margin-bottom:1rem; color: var(--text-grey);">
                 {% if content.release_year %}<span>{{ content.release_year }}</span>{% endif %}
-                {# --- FIX IS HERE --- #}
-                {% if content.rating and content.rating > 0 %}
-                    <span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>
-                {% endif %}
-                {# --- END FIX --- #}
+                {% if content.rating and content.rating > 0 %}<span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>{% endif %}
                 {% if content.genres %}<span>{{ content.genres|join(' • ') }}</span>{% endif %}
             </div>
             <p style="max-width: 600px; line-height: 1.6; margin-bottom: 30px;">{{ content.overview }}</p>
@@ -158,23 +150,7 @@ detail_html_content = """
     </div>
 </div>
 """
-# ############# END: UPDATED detail_html_content #############
-
-player_html = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Watching: {{ title }}</title>
-    <style>body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; } video { width: 100%; height: 100%; object-fit: contain; }</style>
-</head>
-<body><video controls autoplay controlsList="nodownload"><source src="{{ url_for('stream_file', movie_id=movie_id, quality=quality) }}" type="video/mp4">Your browser does not support the video tag.</video></body>
-</html>
-"""
-
-admin_html = """
-<!DOCTYPE html><html><head><title>Admin Panel - MovieZone</title><style>body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; } h1 { color: #e50914; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #444; padding: 8px; text-align: left; vertical-align: middle; } th { background: #333; } img { border-radius: 4px; } a { color: #3498db; }</style></head>
-<body><h1>Manage Content</h1><p>Upload files to your admin Telegram channel to automatically add or update content.</p></body></html>
-"""
+player_html = """<!DOCTYPE html><html><head><title>Watching: {{ title }}</title><style>body,html{margin:0;padding:0;width:100%;height:100%;background-color:#000;overflow:hidden}video{width:100%;height:100%;object-fit:contain}</style></head><body><video controls autoplay controlsList="nodownload"><source src="{{ url_for('stream_file', movie_id=movie_id, quality=quality) }}" type="video/mp4">Your browser does not support this video.</video></body></html>"""
 
 # ======================================================================
 # --- Helper & Core Functions ---
@@ -182,7 +158,6 @@ admin_html = """
 def render_page(content_template, **kwargs):
     page_content = render_template_string(content_template, **kwargs)
     return render_template_string(base_layout_html, page_content=page_content, **kwargs)
-
 @app.context_processor
 def inject_global_vars(): return dict(sitename=VITE_SITENAME, now=datetime.utcnow())
 def check_auth(username, password): return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
@@ -236,11 +211,10 @@ def get_file_details(movie_id, quality):
         movie = movies_collection.find_one({"_id": ObjectId(movie_id)})
         if not movie: return None, None
         file_id, filename = None, f"{movie.get('title', 'video')}.mkv"
-        if movie.get('type') == 'movie':
-            target_file = next((f for f in movie.get('files', []) if f.get('quality') == quality), None)
-            if target_file: file_id = target_file.get('file_id')
+        target_file = next((f for f in movie.get('files', []) if f.get('quality') == quality), None)
+        if target_file: file_id = target_file.get('file_id')
         return file_id, filename
-    except Exception: return None, None
+    except InvalidId: return None, None
 
 # ======================================================================
 # --- Main Website Routes ---
@@ -264,8 +238,9 @@ def player(movie_id, quality):
     try:
         movie = movies_collection.find_one({"_id": ObjectId(movie_id)})
         return render_template_string(player_html, title=movie['title'], movie_id=movie_id, quality=quality) if movie else ("Movie not found", 404)
-    except Exception: return "Invalid ID", 400
+    except InvalidId: return "Invalid Movie ID", 400
 
+# Placeholder pages
 @app.route('/movies')
 def movies_page(): return "All Movies Page - Coming Soon!"
 @app.route('/series')
@@ -279,10 +254,10 @@ def stream_file(movie_id, quality):
     if not file_id: return "File not found.", 404
     try:
         file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile?file_id={file_id}").json()
-        if not file_info_res.get('ok'): return f"Telegram Error: {file_info_res.get('description')}", 500
-        file_path = file_info_res['result']['file_path']
+        file_path = file_info_res.get('result', {}).get('file_path')
+        if not file_path: return f"Telegram API Error: {file_info_res.get('description', 'Could not get file path.')}", 500
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        req = requests.get(file_url, stream=True)
+        req = requests.get(file_url, stream=True, timeout=60)
         return Response(stream_with_context(req.iter_content(chunk_size=1024*1024)), content_type=req.headers['content-type'])
     except Exception as e: return f"Streaming Error: {e}", 500
 
@@ -292,10 +267,10 @@ def download_file(movie_id, quality):
     if not file_id: return "File not found.", 404
     try:
         file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile?file_id={file_id}").json()
-        if not file_info_res.get('ok'): return f"Telegram Error: {file_info_res.get('description')}", 500
-        file_path = file_info_res['result']['file_path']
+        file_path = file_info_res.get('result', {}).get('file_path')
+        if not file_path: return f"Telegram API Error: {file_info_res.get('description', 'Could not get file path.')}", 500
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        req = requests.get(file_url, stream=True)
+        req = requests.get(file_url, stream=True, timeout=60)
         headers = {'Content-Type': 'application/octet-stream', 'Content-Disposition': f'attachment; filename="{filename}"'}
         return Response(stream_with_context(req.iter_content(chunk_size=1024*1024)), headers=headers)
     except Exception as e: return f"Download Error: {e}", 500
@@ -331,7 +306,7 @@ def telegram_webhook():
     
 @app.route('/admin')
 @requires_auth
-def admin(): return render_template_string(admin_html, base_layout_html=base_layout_html, seo={"title": "Admin Panel"})
+def admin(): return render_template_string("<h1>Admin Panel</h1><p>Content is managed via Telegram.</p>")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
