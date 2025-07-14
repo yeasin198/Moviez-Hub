@@ -1,7 +1,5 @@
-flask
+Flask
 requests
 pymongo
-apscheduler
 gunicorn
-pyrogram
-tgcrypto
+python-dotenv
