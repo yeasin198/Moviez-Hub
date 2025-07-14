@@ -2,7 +2,7 @@ import os
 import sys
 import re
 import requests
-from flask import Flask, render_template_string, request, redirect, url_for, Response, jsonify, stream_with_context
+from flask import Flask, render_template_string, request, Response, jsonify, stream_with_context
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 from functools import wraps
@@ -37,7 +37,7 @@ app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 # ======================================================================
-# --- HTML টেমপ্লেটগুলো এখানে ভেরিয়েবল হিসেবে থাকবে ---
+# --- HTML টেমপ্লেটগুলো ---
 # ======================================================================
 
 # --- ১. হোমপেজ (index.html) ---
@@ -96,7 +96,6 @@ index_html = """
                 <input type="search" name="q" placeholder="Search..." value="{{ query|default('') }}" />
             </form>
         </header>
-        
         {% if not is_full_page_list and recently_added %}
         <section class="hero-section">
             <img src="{{ recently_added[0].backdrop or recently_added[0].poster }}" alt="{{ recently_added[0].title }} backdrop" class="hero-bg">
@@ -110,37 +109,29 @@ index_html = """
             </div>
         </section>
         {% endif %}
-
         <h2 class="category-title">{{ query or 'Latest Movies & Series' }}</h2>
         <div class="movie-grid">
             {% set content_list = movies if is_full_page_list else latest_movies %}
             {% for m in content_list %}
-            <div class="movie-card"
-                data-id="{{ m._id }}"
-                data-title="{{ m.title }}"
-                data-files="{{ m.files|tojson|safe }}"
-                data-type="{{ m.type }}">
+            <div class="movie-card" data-id="{{ m._id }}" data-title="{{ m.title }}" data-files="{{ m.files|tojson|safe }}" data-type="{{ m.type }}">
                 <img src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }} poster" loading="lazy">
                 <div class="movie-card-title">{{ m.title }}</div>
             </div>
             {% endfor %}
         </div>
     </div>
-
     <div class="modal-overlay" id="linkModal">
       <div class="modal-content">
         <span class="modal-close" id="modalCloseBtn">×</span>
         <h3 class="modal-title" id="modalTitle"></h3>
         <div id="modalLinks"></div>
-        <a href="#" id="modalInfoLink" class="modal-link info-btn">
-            <i class="fas fa-info-circle"></i> <span>More Info & Details</span>
-        </a>
+        <a href="#" id="modalInfoLink" class="modal-link info-btn"><i class="fas fa-info-circle"></i> <span>More Info & Details</span></a>
       </div>
     </div>
-
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const modalOverlay = document.getElementById('linkModal');
+        if (!modalOverlay) return;
         const modalTitle = document.getElementById('modalTitle');
         const modalLinksContainer = document.getElementById('modalLinks');
         const modalInfoLink = document.getElementById('modalInfoLink');
@@ -151,37 +142,28 @@ index_html = """
                 const title = card.dataset.title;
                 const files = JSON.parse(card.dataset.files);
                 const type = card.dataset.type;
-
                 modalTitle.textContent = title;
                 modalInfoLink.href = `/movie/${id}`;
                 modalLinksContainer.innerHTML = '';
-
                 if (type === 'series') {
                     modalLinksContainer.innerHTML = `<a href="/movie/${id}" class="modal-link play-btn"><i class="fas fa-list-ul"></i> <span>View All Episodes</span></a>`;
                 } else if (files && files.length > 0) {
                     let linksHtml = '';
-                    files.sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0)); // Sort by quality DESC
+                    files.sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0));
                     files.forEach(file => {
                         const quality = file.quality;
-                        linksHtml += `
-                            <a href="/player/${id}/${quality}" class="modal-link play-btn" target="_blank"><i class="fas fa-play"></i> <span>Play ${quality}</span></a>
-                            <a href="/download/${id}/${quality}" class="modal-link"><i class="fas fa-download"></i> <span>Download ${quality}</span></a>
-                        `;
+                        linksHtml += `<a href="/player/${id}/${quality}" class="modal-link play-btn" target="_blank"><i class="fas fa-play"></i> <span>Play ${quality}</span></a>
+                                      <a href="/download/${id}/${quality}" class="modal-link"><i class="fas fa-download"></i> <span>Download ${quality}</span></a>`;
                     });
                     modalLinksContainer.innerHTML = linksHtml;
                 } else {
                     modalLinksContainer.innerHTML = '<p>No links available yet.</p>';
                 }
-                
                 document.body.classList.add('modal-open');
                 modalOverlay.classList.add('show');
             });
         });
-
-        const closeModal = () => {
-            document.body.classList.remove('modal-open');
-            modalOverlay.classList.remove('show');
-        }
+        const closeModal = () => { document.body.classList.remove('modal-open'); modalOverlay.classList.remove('show'); };
         closeModalBtn.addEventListener('click', closeModal);
         modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
@@ -190,8 +172,6 @@ index_html = """
 </body>
 </html>
 """
-
-# --- ২. বিস্তারিত পেজ (detail.html) ---
 detail_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -224,9 +204,7 @@ detail_html = """
     <div class="detail-hero">
         <img src="{{ movie.backdrop or movie.poster or '' }}" class="hero-background" alt="">
         <div class="detail-content">
-            <div class="detail-poster">
-                <img src="{{ movie.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ movie.title }}">
-            </div>
+            <div class="detail-poster"><img src="{{ movie.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ movie.title }}"></div>
             <div class="detail-info">
                 <h1>{{ movie.title }}</h1>
                 <div class="detail-meta">
@@ -235,7 +213,6 @@ detail_html = """
                     {% if movie.genres %}<span>{{ movie.genres|join(' • ') }}</span>{% endif %}
                 </div>
                 <p class="detail-overview">{{ movie.overview }}</p>
-
                 <div>
                     <h2 class="section-title">Available Files</h2>
                     <div class="action-links">
@@ -246,24 +223,17 @@ detail_html = """
                             {% endfor %}
                         {% elif movie.type == 'series' and movie.episodes %}
                              {% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}
-                                <a href="{{ url_for('player', movie_id=movie._id, quality=ep.quality, season=ep.season, episode=ep.episode_number) }}" class="play-btn">
-                                    <i class="fas fa-play"></i> S{{ "%02d"|format(ep.season) }}E{{ "%02d"|format(ep.episode_number) }} - Play {{ ep.quality }}
-                                </a>
+                                <a href="{{ url_for('player', movie_id=movie._id, quality=ep.quality, season=ep.season, episode=ep.episode_number) }}" class="play-btn"><i class="fas fa-play"></i> S{{ "%02d"|format(ep.season) }}E{{ "%02d"|format(ep.episode_number) }} - Play {{ ep.quality }}</a>
                             {% endfor %}
-                        {% else %}
-                            <p>No files available yet.</p>
-                        {% endif %}
+                        {% else %}<p>No files available yet.</p>{% endif %}
                     </div>
                 </div>
-
             </div>
         </div>
     </div>
 </body>
 </html>
 """
-
-# --- ৩. ভিডিও প্লেয়ার (player.html) ---
 player_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -271,10 +241,7 @@ player_html = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Watching: {{ movie.title }}</title>
-    <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; }
-        video { width: 100%; height: 100%; object-fit: contain; }
-    </style>
+    <style>body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; } video { width: 100%; height: 100%; object-fit: contain; }</style>
 </head>
 <body>
     <video controls autoplay controlsList="nodownload">
@@ -284,22 +251,12 @@ player_html = """
 </body>
 </html>
 """
-
-# --- ৪. অ্যাডমিন প্যানেল (admin_panel.html) ---
 admin_html = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>Admin Panel - MovieZone</title>
-    <style>
-        body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; }
-        h1 { color: #e50914; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #444; padding: 8px; text-align: left; vertical-align: middle; }
-        th { background: #333; }
-        img { border-radius: 4px; }
-        a { color: #3498db; }
-    </style>
+    <style>body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; } h1 { color: #e50914; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #444; padding: 8px; text-align: left; vertical-align: middle; } th { background: #333; } img { border-radius: 4px; } a { color: #3498db; }</style>
 </head>
 <body>
     <h1>Manage Content</h1>
@@ -313,13 +270,7 @@ admin_html = """
                 <td>{{ movie.title }}</td>
                 <td>{{ movie.type }}</td>
                 <td>
-                    {% if movie.files %}
-                        {% for file in movie.files %}
-                            <span>{{ file.quality }}</span>{% if not loop.last %}, {% endif %}
-                        {% endfor %}
-                    {% else %}
-                        N/A
-                    {% endif %}
+                    {% if movie.files %}{% for file in movie.files %}<span>{{ file.quality }}</span>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}N/A{% endif %}
                 </td>
                 <td><a href="#">Edit</a> <a href="#">Delete</a></td>
             </tr>
@@ -334,7 +285,6 @@ admin_html = """
 # --- Helper & Core Functions ---
 # ======================================================================
 
-# --- অ্যাডমিন অথেন্টিকেশন ফাংশন ---
 def check_auth(username, password):
     return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 
@@ -350,7 +300,6 @@ def requires_auth(f):
         return f(*args, **kwargs)
     return decorated
 
-# --- ডাটাবেস কানেকশন ---
 try:
     client = MongoClient(MONGO_URI)
     db = client["movie_db"]
@@ -360,13 +309,36 @@ except Exception as e:
     print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
     sys.exit(1)
 
-# --- TMDb থেকে তথ্য আনার ফাংশন ---
+# --- নতুন, শক্তিশালী ফাইল পার্সিং ফাংশন ---
+def parse_filename(filename):
+    cleaned_name = filename.replace('.', ' ').replace('_', ' ').strip()
+    
+    series_match = re.search(r'^(.*?)[\s\._-]*(?:S|Season)[\s\._-]?(\d{1,2})[\s\._-]*(?:E|Episode)[\s\._-]?(\d{1,3})', cleaned_name, re.I)
+    if series_match:
+        title = series_match.group(1).strip()
+        season_num = int(series_match.group(2))
+        episode_num = int(series_match.group(3))
+        title = re.sub(r'\[.*?\]|\(.*?\)', '', title).strip()
+        year_match = re.search(r'\b(19[89]\d|20\d{2})\b', title)
+        year = year_match.group(1) if year_match else None
+        title = re.sub(r'\b(19\d{2}|20\d{2})\b', '', title).strip()
+        return {'type': 'series', 'title': title.title(), 'year': year, 'season': season_num, 'episode': episode_num}
+
+    year_match = re.search(r'\b(19[89]\d|20\d{2})\b', cleaned_name)
+    year = year_match.group(1) if year_match else None
+    title = re.split(r'\b(19\d{2}|20\d{2})\b', cleaned_name)[0].strip()
+    title = re.sub(r'\[.*?\]|\(.*?\)', '', title).strip()
+    return {'type': 'movie', 'title': title.title(), 'year': year}
+
 def get_tmdb_details_from_api(title, content_type, year=None):
     if not TMDB_API_KEY: return None
     search_type = "tv" if content_type == "series" else "movie"
     try:
         search_url = f"https://api.themoviedb.org/3/search/{search_type}?api_key={TMDB_API_KEY}&query={requests.utils.quote(title)}"
-        if year and search_type == "movie": search_url += f"&primary_release_year={year}"
+        if year:
+            param = "primary_release_year" if search_type == "movie" else "first_air_date_year"
+            search_url += f"&{param}={year}"
+
         search_res = requests.get(search_url, timeout=5).json()
         if not search_res.get("results"): return None
 
@@ -383,7 +355,7 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         }
     except requests.RequestException as e:
         print(f"TMDb API error for '{title}': {e}")
-    return None
+        return None
 
 def process_movie_list(movie_list):
     for item in movie_list:
@@ -393,23 +365,18 @@ def process_movie_list(movie_list):
 def get_file_details(movie_id, quality, season=None, episode=None):
     movie = movies.find_one({"_id": ObjectId(movie_id)})
     if not movie: return None, None, None
-
     file_id, filename = None, f"{movie.get('title', 'video')}.mp4"
-
     if movie['type'] == 'series' and season and episode:
-        target_episode = next((ep for ep in movie.get('episodes', []) 
-                               if ep.get('season') == int(season) and ep.get('episode_number') == int(episode) and ep.get('quality') == quality), None)
+        target_episode = next((ep for ep in movie.get('episodes', []) if ep.get('season') == int(season) and ep.get('episode_number') == int(episode) and ep.get('quality') == quality), None)
         if target_episode: file_id = target_episode.get('file_id')
     elif movie['type'] == 'movie':
         target_file = next((f for f in movie.get('files', []) if f.get('quality') == quality), None)
         if target_file: file_id = target_file.get('file_id')
-    
     return file_id, filename, movie
 
 # ======================================================================
 # --- Main Website Routes ---
 # ======================================================================
-
 @app.route('/')
 def home():
     query = request.args.get('q')
@@ -419,8 +386,8 @@ def home():
 
     limit = 12
     context = {
-        "latest_movies": process_movie_list(list(movies.find({"type": "movie"}).sort('_id', -1).limit(limit))),
-        "recently_added": process_movie_list(list(movies.find().sort('_id', -1).limit(6))),
+        "latest_movies": process_movie_list(list(movies.find().sort('created_at', -1).limit(limit))),
+        "recently_added": process_movie_list(list(movies.find().sort('created_at', -1).limit(6))),
         "is_full_page_list": False,
     }
     return render_template_string(index_html, **context)
@@ -430,27 +397,19 @@ def movie_detail(movie_id):
     try:
         movie = movies.find_one({"_id": ObjectId(movie_id)})
         return render_template_string(detail_html, movie=movie) if movie else ("Content not found", 404)
-    except Exception as e:
-        return f"An error occurred: {e}", 500
+    except Exception: return "Invalid ID format", 400
 
-# ======================================================================
 # --- Streaming and Downloading Routes ---
-# ======================================================================
-
 @app.route('/stream/<movie_id>/<quality>')
 @app.route('/stream/<movie_id>/<quality>/<season>/<episode>')
 def stream_file(movie_id, quality, season=None, episode=None):
     file_id, _, _ = get_file_details(movie_id, quality, season, episode)
     if not file_id: return "File not found in database.", 404
-    
     try:
         file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile?file_id={file_id}").json()
-        if not file_info_res.get('ok'):
-            return f"Error getting file info from Telegram: {file_info_res.get('description')}", 500
-        
+        if not file_info_res.get('ok'): return f"Telegram Error: {file_info_res.get('description')}", 500
         file_path = file_info_res['result']['file_path']
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        
         req = requests.get(file_url, stream=True)
         return Response(stream_with_context(req.iter_content(chunk_size=1024*1024)), content_type=req.headers['content-type'])
     except Exception as e:
@@ -462,14 +421,11 @@ def stream_file(movie_id, quality, season=None, episode=None):
 def download_file(movie_id, quality, season=None, episode=None):
     file_id, filename, _ = get_file_details(movie_id, quality, season, episode)
     if not file_id: return "File not found in database.", 404
-
     try:
         file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile?file_id={file_id}").json()
-        if not file_info_res.get('ok'): return f"Error from Telegram: {file_info_res.get('description')}", 500
-
+        if not file_info_res.get('ok'): return f"Telegram Error: {file_info_res.get('description')}", 500
         file_path = file_info_res['result']['file_path']
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-        
         req = requests.get(file_url, stream=True)
         headers = {'Content-Type': 'application/octet-stream', 'Content-Disposition': f'attachment; filename="{filename}"'}
         return Response(stream_with_context(req.iter_content(chunk_size=1024*1024)), headers=headers)
@@ -484,64 +440,58 @@ def player(movie_id, quality, season=None, episode=None):
     if not movie: return "Movie not found", 404
     return render_template_string(player_html, movie=movie, movie_id=movie_id, quality=quality, season=season, episode=episode)
 
-# ======================================================================
 # --- Webhook Route ---
-# ======================================================================
-
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
-    if 'channel_post' not in data: return jsonify(status='ok', reason='not_a_channel_post')
-        
+    if 'channel_post' not in data: return jsonify(status='ok')
     post = data['channel_post']
-    if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return jsonify(status='ok', reason='not_admin_channel')
-
+    if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return jsonify(status='ok')
     file_doc = post.get('video') or post.get('document')
-    if not (file_doc and file_doc.get('file_name')): return jsonify(status='ok', reason='no_file_in_post')
+    if not (file_doc and file_doc.get('file_name')): return jsonify(status='ok')
 
     file_id, filename, message_id = file_doc.get('file_id'), file_doc.get('file_name'), post['message_id']
+    print(f"Webhook: Received file '{filename}'")
     
-    # ফাইলের নাম থেকে টাইটেল এবং সাল বের করার চেষ্টা
-    parsed_title = os.path.splitext(filename)[0]
-    year_match = re.search(r'\b(19[89]\d|20\d{2})\b', parsed_title)
-    year = year_match.group(1) if year_match else None
-    parsed_title = re.sub(r'\b(19\d{2}|20\d{2}|480p|720p|1080p|BluRay|WEB-DL|x264|x265|HDRip|HDTV)\b', '', parsed_title, flags=re.I)
-    parsed_title = parsed_title.replace('.', ' ').strip()
+    parsed_info = parse_filename(filename)
+    if not parsed_info or not parsed_info.get('title'):
+        print(f"Webhook FATAL: Could not parse title from '{filename}'")
+        return jsonify(status='ok', reason='parsing_failed')
+    print(f"Webhook: Parsed info: {parsed_info}")
 
-    tmdb_data = get_tmdb_details_from_api(parsed_title, "movie", year)
+    tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
     if not tmdb_data:
-        print(f"Webhook FATAL: Could not find TMDb data for '{parsed_title}'.")
+        print(f"Webhook FATAL: Could not find TMDb data for '{parsed_info['title']}'")
         return jsonify(status='ok', reason='no_tmdb_data')
+    print(f"Webhook: Found TMDb data for '{tmdb_data['title']}'")
 
     quality_match = re.search(r'(\d{3,4})p', filename, re.I)
     quality = quality_match.group(1) + "p" if quality_match else "HD"
 
-    existing_movie = movies.find_one({"tmdb_id": tmdb_data['tmdb_id']})
-    new_file_data = {"quality": quality, "file_id": file_id, "message_id": message_id}
-
-    if existing_movie:
-        movies.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": quality}}})
-        movies.update_one({"_id": existing_movie['_id']}, {"$push": {"files": new_file_data}})
-        print(f"Webhook: Updated movie '{tmdb_data['title']}' with quality '{quality}'.")
-    else:
-        movie_doc = {**tmdb_data, "type": "movie", "files": [new_file_data], "created_at": datetime.utcnow()}
-        movies.insert_one(movie_doc)
-        print(f"Webhook: Created new movie '{tmdb_data['title']}'.")
-
+    if parsed_info['type'] == 'series':
+        # সিরিজ হ্যান্ডেল করার লজিক এখানে আসবে (ভবিষ্যতের জন্য)
+        pass 
+    else: # মুভি
+        existing_movie = movies.find_one({"tmdb_id": tmdb_data['tmdb_id']})
+        new_file_data = {"quality": quality, "file_id": file_id, "message_id": message_id}
+        if existing_movie:
+            movies.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": quality}}})
+            movies.update_one({"_id": existing_movie['_id']}, {"$push": {"files": new_file_data}})
+            print(f"Webhook: Updated movie '{tmdb_data['title']}' with quality '{quality}'.")
+        else:
+            movie_doc = {**tmdb_data, "type": "movie", "files": [new_file_data], "created_at": datetime.utcnow()}
+            movies.insert_one(movie_doc)
+            print(f"Webhook: Created new movie '{tmdb_data['title']}'.")
     return jsonify(status='ok')
 
-# ======================================================================
 # --- Admin Panel Route ---
-# ======================================================================
 @app.route('/admin')
 @requires_auth
 def admin():
-    all_content = process_movie_list(list(movies.find().sort('_id', -1)))
+    all_content = process_movie_list(list(movies.find().sort('created_at', -1)))
     return render_template_string(admin_html, all_content=all_content)
 
-# ======================================================================
 # --- Main Execution ---
-# ======================================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
