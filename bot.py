@@ -103,7 +103,7 @@ index_html = """
 <script type='text/javascript' src='//pl27112807.profitableratecpm.com/4f/f7/e2/4ff7e25441144507c3de68c4582b7562.js'></script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>Moviez-Hub - Your Entertainment Hub</title>
+<title>Moviez Hub - Your Entertainment Hub</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
   :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; --nav-height: 60px; }
@@ -192,7 +192,7 @@ index_html = """
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
 <body>
-<header class="main-nav"><a href="{{ url_for('home') }}" class="logo">Moviez-Hub</a><form method="GET" action="/" class="search-form"><input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" /></form></header>
+<header class="main-nav"><a href="{{ url_for('home') }}" class="logo">Moviez Hub</a><form method="GET" action="/" class="search-form"><input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" /></form></header>
 <main>
   {% macro render_movie_card(m) %}
     <a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">
@@ -268,9 +268,10 @@ detail_html = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script type='text/javascript' src='//pl27112807.profitableratecpm.com/4f/f7/e2/4ff7e25441144507c3de68c4582b7562.js'></script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-<title>{{ movie.title if movie else "Content Not Found" }} - Moviez-Hub</title>
+<title>{{ movie.title if movie else "Content Not Found" }} - Moviez Hub</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
   :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; --text-dark: #a0a0a0; }
@@ -365,7 +366,7 @@ function copyToClipboard(text) { navigator.clipboard.writeText(text).then(() => 
 
 genres_html = """
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" /><title>{{ title }} - Moviez-Hub</title>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" /><title>{{ title }} - Moviez Hub</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;500;700&display=swap');
   :root { --netflix-red: #E50914; --netflix-black: #141414; --text-light: #f5f5f5; }
@@ -397,7 +398,7 @@ watch_html = """
 
 admin_html = """
 <!DOCTYPE html>
-<html><head><title>Admin Panel - Moviez-Hub</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
+<html><head><title>Admin Panel - Moviez Hub</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
 :root { --netflix-red: #E50914; --netflix-black: #141414; --dark-gray: #222; --light-gray: #333; --text-light: #f5f5f5; }
 body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); padding: 20px; }
 h2, h3 { font-family: 'Bebas Neue', sans-serif; color: var(--netflix-red); } h2 { font-size: 2.5rem; margin-bottom: 20px; } h3 { font-size: 1.5rem; margin: 20px 0 10px 0;}
@@ -482,7 +483,7 @@ hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray)
 
 edit_html = """
 <!DOCTYPE html>
-<html><head><title>Edit Content - Moviez-Hub</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
+<html><head><title>Edit Content - Moviez Hub</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
 :root { --netflix-red: #E50914; --netflix-black: #141414; --dark-gray: #222; --light-gray: #333; --text-light: #f5f5f5; }
 body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); padding: 20px; }
 h2, h3 { font-family: 'Bebas Neue', sans-serif; color: var(--netflix-red); } h2 { font-size: 2.5rem; margin-bottom: 20px; } h3 { font-size: 1.5rem; margin: 20px 0 10px 0;}
@@ -576,7 +577,7 @@ button[type="submit"], .add-btn { background: var(--netflix-red); color: white; 
 
 contact_html = """
 <!DOCTYPE html>
-<html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Contact Us / Report - Moviez-Hub</title><style>
+<html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Contact Us / Report - Moviez Hub</title><style>
 :root { --netflix-red: #E50914; --netflix-black: #141414; --dark-gray: #222; --light-gray: #333; --text-light: #f5f5f5; }
 body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); color: var(--text-light); padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
 .contact-container { max-width: 600px; width: 100%; background: var(--dark-gray); padding: 30px; border-radius: 8px; }
