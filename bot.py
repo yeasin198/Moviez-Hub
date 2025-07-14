@@ -40,7 +40,6 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 # --- HTML টেমপ্লেটগুলো ---
 # ======================================================================
 
-# --- ১. হোমপেজ (index.html) ---
 index_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -92,18 +91,16 @@ index_html = """
     <div class="container">
         <header class="header">
             <a href="/" class="logo">MovieZone</a>
-            <form method="GET" action="/" class="search-form">
-                <input type="search" name="q" placeholder="Search..." value="{{ query|default('') }}" />
-            </form>
+            <form method="GET" action="/" class="search-form"><input type="search" name="q" placeholder="Search..." value="{{ query|default('') }}" /></form>
         </header>
-        {% if not is_full_page_list and recently_added %}
+        {% if not is_full_page_list and recently_added and recently_added[0].files %}
         <section class="hero-section">
             <img src="{{ recently_added[0].backdrop or recently_added[0].poster }}" alt="{{ recently_added[0].title }} backdrop" class="hero-bg">
             <div class="hero-bg-overlay"></div>
             <div class="hero-content">
                 <h1 class="hero-title">{{ recently_added[0].title }}</h1>
                 <div class="hero-buttons">
-                    <a href="{{ url_for('player', movie_id=recently_added[0]._id, quality=recently_added[0].files[0].quality) if recently_added[0].files else '#' }}" class="btn btn-play"><i class="fas fa-play"></i> Play</a>
+                    <a href="{{ url_for('player', movie_id=recently_added[0]._id, quality=recently_added[0].files[0].quality) }}" class="btn btn-play"><i class="fas fa-play"></i> Play</a>
                     <a href="{{ url_for('movie_detail', movie_id=recently_added[0]._id) }}" class="btn btn-info"><i class="fas fa-info-circle"></i> More Info</a>
                 </div>
             </div>
@@ -113,7 +110,7 @@ index_html = """
         <div class="movie-grid">
             {% set content_list = movies if is_full_page_list else latest_movies %}
             {% for m in content_list %}
-            <div class="movie-card" data-id="{{ m._id }}" data-title="{{ m.title }}" data-files="{{ m.files|tojson|safe }}" data-type="{{ m.type }}">
+            <div class="movie-card" data-id="{{ m._id }}" data-title="{{ m.title }}" data-files="{{ m.files|tojson if m.files else '[]' }}" data-type="{{ m.type }}">
                 <img src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }} poster" loading="lazy">
                 <div class="movie-card-title">{{ m.title }}</div>
             </div>
@@ -130,8 +127,7 @@ index_html = """
     </div>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
-        const modalOverlay = document.getElementById('linkModal');
-        if (!modalOverlay) return;
+        const modalOverlay = document.getElementById('linkModal'); if (!modalOverlay) return;
         const modalTitle = document.getElementById('modalTitle');
         const modalLinksContainer = document.getElementById('modalLinks');
         const modalInfoLink = document.getElementById('modalInfoLink');
@@ -172,6 +168,7 @@ index_html = """
 </body>
 </html>
 """
+
 detail_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -284,13 +281,13 @@ admin_html = """
 # ======================================================================
 # --- Helper & Core Functions ---
 # ======================================================================
-
 def check_auth(username, password):
     return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 
 def authenticate():
     return Response('Could not verify your access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
+@wraps(check_auth)
 def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -309,10 +306,8 @@ except Exception as e:
     print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
     sys.exit(1)
 
-# --- নতুন, শক্তিশালী ফাইল পার্সিং ফাংশন ---
 def parse_filename(filename):
     cleaned_name = filename.replace('.', ' ').replace('_', ' ').strip()
-    
     series_match = re.search(r'^(.*?)[\s\._-]*(?:S|Season)[\s\._-]?(\d{1,2})[\s\._-]*(?:E|Episode)[\s\._-]?(\d{1,3})', cleaned_name, re.I)
     if series_match:
         title = series_match.group(1).strip()
@@ -327,7 +322,7 @@ def parse_filename(filename):
     year_match = re.search(r'\b(19[89]\d|20\d{2})\b', cleaned_name)
     year = year_match.group(1) if year_match else None
     title = re.split(r'\b(19\d{2}|20\d{2})\b', cleaned_name)[0].strip()
-    title = re.sub(r'\[.*?\]|\(.*?\)', '', title).strip()
+    title = re.sub(r'\[.*?\]|\(.*?\)|\d{3,4}p|x264|x265|BluRay|WEB-DL|HDRip|HDTV', '', title, flags=re.I).strip()
     return {'type': 'movie', 'title': title.title(), 'year': year}
 
 def get_tmdb_details_from_api(title, content_type, year=None):
@@ -338,22 +333,13 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         if year:
             param = "primary_release_year" if search_type == "movie" else "first_air_date_year"
             search_url += f"&{param}={year}"
-
         search_res = requests.get(search_url, timeout=5).json()
         if not search_res.get("results"): return None
-
         tmdb_id = search_res["results"][0].get("id")
         detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}"
         res = requests.get(detail_url, timeout=5).json()
-        
-        return {
-            "tmdb_id": tmdb_id, "title": res.get("title") if search_type == "movie" else res.get("name"),
-            "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None,
-            "backdrop": f"https://image.tmdb.org/t/p/w1280{res.get('backdrop_path')}" if res.get('backdrop_path') else None,
-            "overview": res.get("overview"), "release_date": res.get("release_date") if search_type == "movie" else res.get("first_air_date"),
-            "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average")
-        }
-    except requests.RequestException as e:
+        return {"tmdb_id": tmdb_id, "title": res.get("title") or res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "backdrop": f"https://image.tmdb.org/t/p/w1280{res.get('backdrop_path')}" if res.get('backdrop_path') else None, "overview": res.get("overview"), "release_date": res.get("release_date") or res.get("first_air_date"), "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average")}
+    except (requests.RequestException, IndexError) as e:
         print(f"TMDb API error for '{title}': {e}")
         return None
 
@@ -363,16 +349,18 @@ def process_movie_list(movie_list):
     return movie_list
 
 def get_file_details(movie_id, quality, season=None, episode=None):
-    movie = movies.find_one({"_id": ObjectId(movie_id)})
-    if not movie: return None, None, None
-    file_id, filename = None, f"{movie.get('title', 'video')}.mp4"
-    if movie['type'] == 'series' and season and episode:
-        target_episode = next((ep for ep in movie.get('episodes', []) if ep.get('season') == int(season) and ep.get('episode_number') == int(episode) and ep.get('quality') == quality), None)
-        if target_episode: file_id = target_episode.get('file_id')
-    elif movie['type'] == 'movie':
-        target_file = next((f for f in movie.get('files', []) if f.get('quality') == quality), None)
-        if target_file: file_id = target_file.get('file_id')
-    return file_id, filename, movie
+    try:
+        movie = movies.find_one({"_id": ObjectId(movie_id)})
+        if not movie: return None, None, None
+        file_id, filename = None, f"{movie.get('title', 'video')}.mp4"
+        if movie.get('type') == 'series' and season and episode:
+            target_episode = next((ep for ep in movie.get('episodes', []) if ep.get('season') == int(season) and ep.get('episode_number') == int(episode) and ep.get('quality') == quality), None)
+            if target_episode: file_id = target_episode.get('file_id')
+        elif movie.get('type') == 'movie':
+            target_file = next((f for f in movie.get('files', []) if f.get('quality') == quality), None)
+            if target_file: file_id = target_file.get('file_id')
+        return file_id, filename, movie
+    except Exception: return None, None, None
 
 # ======================================================================
 # --- Main Website Routes ---
@@ -381,15 +369,10 @@ def get_file_details(movie_id, quality, season=None, episode=None):
 def home():
     query = request.args.get('q')
     if query:
-        movies_list = list(movies.find({"title": {"$regex": query, "$options": "i"}}).sort('_id', -1))
+        movies_list = list(movies.find({"title": {"$regex": query, "$options": "i"}}).sort('created_at', -1))
         return render_template_string(index_html, movies=process_movie_list(movies_list), query=f'Results for "{query}"', is_full_page_list=True)
-
-    limit = 12
-    context = {
-        "latest_movies": process_movie_list(list(movies.find().sort('created_at', -1).limit(limit))),
-        "recently_added": process_movie_list(list(movies.find().sort('created_at', -1).limit(6))),
-        "is_full_page_list": False,
-    }
+    limit = 18
+    context = {"latest_movies": process_movie_list(list(movies.find().sort('created_at', -1).limit(limit))), "recently_added": process_movie_list(list(movies.find().sort('created_at', -1).limit(1))), "is_full_page_list": False}
     return render_template_string(index_html, **context)
 
 @app.route('/movie/<movie_id>')
@@ -399,7 +382,6 @@ def movie_detail(movie_id):
         return render_template_string(detail_html, movie=movie) if movie else ("Content not found", 404)
     except Exception: return "Invalid ID format", 400
 
-# --- Streaming and Downloading Routes ---
 @app.route('/stream/<movie_id>/<quality>')
 @app.route('/stream/<movie_id>/<quality>/<season>/<episode>')
 def stream_file(movie_id, quality, season=None, episode=None):
@@ -412,9 +394,7 @@ def stream_file(movie_id, quality, season=None, episode=None):
         file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
         req = requests.get(file_url, stream=True)
         return Response(stream_with_context(req.iter_content(chunk_size=1024*1024)), content_type=req.headers['content-type'])
-    except Exception as e:
-        print(f"Streaming Error: {e}")
-        return "Error streaming file from server.", 500
+    except Exception as e: return f"Error streaming file from server: {e}", 500
 
 @app.route('/download/<movie_id>/<quality>')
 @app.route('/download/<movie_id>/<quality>/<season>/<episode>')
@@ -429,9 +409,7 @@ def download_file(movie_id, quality, season=None, episode=None):
         req = requests.get(file_url, stream=True)
         headers = {'Content-Type': 'application/octet-stream', 'Content-Disposition': f'attachment; filename="{filename}"'}
         return Response(stream_with_context(req.iter_content(chunk_size=1024*1024)), headers=headers)
-    except Exception as e:
-        print(f"Download Error: {e}")
-        return "Error creating download link.", 500
+    except Exception as e: return f"Error creating download link: {e}", 500
 
 @app.route('/player/<movie_id>/<quality>')
 @app.route('/player/<movie_id>/<quality>/<season>/<episode>')
@@ -440,7 +418,6 @@ def player(movie_id, quality, season=None, episode=None):
     if not movie: return "Movie not found", 404
     return render_template_string(player_html, movie=movie, movie_id=movie_id, quality=quality, season=season, episode=episode)
 
-# --- Webhook Route ---
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
@@ -452,7 +429,6 @@ def telegram_webhook():
 
     file_id, filename, message_id = file_doc.get('file_id'), file_doc.get('file_name'), post['message_id']
     print(f"Webhook: Received file '{filename}'")
-    
     parsed_info = parse_filename(filename)
     if not parsed_info or not parsed_info.get('title'):
         print(f"Webhook FATAL: Could not parse title from '{filename}'")
@@ -471,7 +447,7 @@ def telegram_webhook():
     if parsed_info['type'] == 'series':
         # সিরিজ হ্যান্ডেল করার লজিক এখানে আসবে (ভবিষ্যতের জন্য)
         pass 
-    else: # মুভি
+    else:
         existing_movie = movies.find_one({"tmdb_id": tmdb_data['tmdb_id']})
         new_file_data = {"quality": quality, "file_id": file_id, "message_id": message_id}
         if existing_movie:
@@ -484,14 +460,12 @@ def telegram_webhook():
             print(f"Webhook: Created new movie '{tmdb_data['title']}'.")
     return jsonify(status='ok')
 
-# --- Admin Panel Route ---
 @app.route('/admin')
 @requires_auth
 def admin():
     all_content = process_movie_list(list(movies.find().sort('created_at', -1)))
     return render_template_string(admin_html, all_content=all_content)
 
-# --- Main Execution ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
