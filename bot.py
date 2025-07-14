@@ -18,7 +18,6 @@ from functools import wraps
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Load environment variables for local development
 load_dotenv()
 
 # ======================================================================
@@ -31,7 +30,6 @@ ADMIN_CHANNEL_ID = os.environ.get("ADMIN_CHANNEL_ID")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 VITE_SITENAME = os.environ.get("VITE_SITENAME", "MovieZone")
-VITE_TG_USERNAME = os.environ.get("VITE_TG_USERNAME")
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 app = Flask(__name__)
@@ -45,8 +43,7 @@ base_layout_html = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>{{ seo.title or sitename }}</title>
     <meta name="description" content="{{ seo.description or 'Watch movies and series online.' }}" />
     <meta name="keywords" content="{{ seo.keywords or 'movies, series, watch online' }}" />
@@ -91,9 +88,7 @@ base_layout_html = """
             </form>
         </div>
     </header>
-    <main class="container">
-        {{ page_content|safe }}
-    </main>
+    <main class="container">{{ page_content|safe }}</main>
     <footer class="footer">
         <div class="container">
             <p>This site does not store any file on the server, it only links to media files which are hosted on Telegram.</p>
@@ -130,6 +125,7 @@ home_html_content = """
     </div>
 """
 
+# ############# START: UPDATED detail_html_content #############
 detail_html_content = """
 <div style="position: relative; min-height: 80vh; display: flex; align-items: center; padding: 40px;">
     <img src="{{ content.backdrop or content.poster or '' }}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; filter: blur(10px) brightness(0.4); transform: scale(1.1);" alt="">
@@ -138,9 +134,13 @@ detail_html_content = """
         <div>
             <h1 style="font-size: 3rem; margin-bottom: 20px;">{{ content.title }}</h1>
             <div style="display:flex; flex-wrap:wrap; align-items:center; gap:1rem; margin-bottom:1rem; color: var(--text-grey);">
-                <span>{{ content.release_year }}</span>
-                <span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>
-                <span>{{ content.genres|join(' • ') }}</span>
+                {% if content.release_year %}<span>{{ content.release_year }}</span>{% endif %}
+                {# --- FIX IS HERE --- #}
+                {% if content.rating and content.rating > 0 %}
+                    <span><i class="fas fa-star" style="color:#f5c518;"></i> {{ "%.1f"|format(content.rating) }}</span>
+                {% endif %}
+                {# --- END FIX --- #}
+                {% if content.genres %}<span>{{ content.genres|join(' • ') }}</span>{% endif %}
             </div>
             <p style="max-width: 600px; line-height: 1.6; margin-bottom: 30px;">{{ content.overview }}</p>
             <h2 style="font-size: 1.5rem; margin: 30px 0 15px 0; border-bottom: 2px solid var(--other-color); display: inline-block; padding-bottom: 5px;">Available Files</h2>
@@ -158,6 +158,7 @@ detail_html_content = """
     </div>
 </div>
 """
+# ############# END: UPDATED detail_html_content #############
 
 player_html = """
 <!DOCTYPE html>
@@ -170,22 +171,20 @@ player_html = """
 </html>
 """
 
+admin_html = """
+<!DOCTYPE html><html><head><title>Admin Panel - MovieZone</title><style>body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; } h1 { color: #e50914; } table { width: 100%; border-collapse: collapse; margin-top: 20px; } th, td { border: 1px solid #444; padding: 8px; text-align: left; vertical-align: middle; } th { background: #333; } img { border-radius: 4px; } a { color: #3498db; }</style></head>
+<body><h1>Manage Content</h1><p>Upload files to your admin Telegram channel to automatically add or update content.</p></body></html>
+"""
+
 # ======================================================================
 # --- Helper & Core Functions ---
 # ======================================================================
-
 def render_page(content_template, **kwargs):
-    """Helper function to render a page within the base layout."""
     page_content = render_template_string(content_template, **kwargs)
     return render_template_string(base_layout_html, page_content=page_content, **kwargs)
 
 @app.context_processor
-def inject_global_vars():
-    return dict(sitename=VITE_SITENAME, now=datetime.utcnow())
-# ... (বাকি সব ফাংশন আগের মতোই থাকবে)
-# ... (The rest of the functions from the previous final code remain unchanged)
-# I will copy them here for completeness.
-
+def inject_global_vars(): return dict(sitename=VITE_SITENAME, now=datetime.utcnow())
 def check_auth(username, password): return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 def authenticate(): return Response('Could not verify access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
 @wraps(check_auth)
@@ -196,15 +195,9 @@ def requires_auth(f):
         if not auth or not check_auth(auth.username, auth.password): return authenticate()
         return f(*args, **kwargs)
     return decorated
-
 try:
-    client = MongoClient(MONGO_URI)
-    db = client["movie_db"]
-    movies_collection = db["movies"]
-    print("SUCCESS: Successfully connected to MongoDB!")
-except Exception as e:
-    print(f"FATAL: Error connecting to MongoDB: {e}. Exiting."); sys.exit(1)
-
+    client = MongoClient(MONGO_URI); db = client["movie_db"]; movies_collection = db["movies"]; print("SUCCESS: Connected to MongoDB!")
+except Exception as e: print(f"FATAL: DB Error: {e}"); sys.exit(1)
 def parse_filename(filename):
     cleaned_name = re.sub(r'[\._]', ' ', filename)
     series_match = re.search(r'^(.*?)[\s\._-]*(?:S|Season)[\s\._-]?(\d{1,2})[\s\._-]*(?:E|Episode)[\s\._-]?(\d{1,3})', cleaned_name, re.I)
@@ -219,7 +212,6 @@ def parse_filename(filename):
     for junk in junk_words: title = re.sub(r'\b' + junk + r'\b', '', title, flags=re.I)
     title = re.sub(r'\[.*?\]|\(.*?\)', '', title).strip()
     return {'type': 'movie', 'title': title.strip().title(), 'year': year}
-
 def get_tmdb_details_from_api(title, content_type, year=None):
     if not TMDB_API_KEY: return None
     search_type = "tv" if content_type == "series" else "movie"
@@ -235,13 +227,10 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         res = requests.get(detail_url, timeout=5).json()
         return {"tmdb_id": tmdb_id, "title": res.get("title") or res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "backdrop": f"https://image.tmdb.org/t/p/w1280{res.get('backdrop_path')}" if res.get('backdrop_path') else None, "overview": res.get("overview"), "release_year": (res.get("release_date") or res.get("first_air_date", "")).split('-')[0], "genres": [g['name'] for g in res.get("genres", [])], "rating": res.get("vote_average"), "media_type": search_type}
     except Exception as e: print(f"TMDb API error for '{title}': {e}"); return None
-
 def process_movie_list(movie_list):
     processed = []
-    for item in movie_list:
-        item["_id"] = str(item["_id"]); processed.append(item)
+    for item in movie_list: item["_id"] = str(item["_id"]); processed.append(item)
     return processed
-
 def get_file_details(movie_id, quality):
     try:
         movie = movies_collection.find_one({"_id": ObjectId(movie_id)})
@@ -261,7 +250,7 @@ def home():
     hero_movie = movies_collection.find_one(sort=[('rating', DESCENDING)])
     latest_movies = list(movies_collection.find({"type": "movie"}).sort('created_at', DESCENDING).limit(18))
     seo = {"title": VITE_SITENAME, "description": "Discover a world of entertainment...", "keywords": "watch movies online"}
-    return render_page(home_html_content, hero_movie=hero_movie, latest_movies=process_movie_list(latest_movies), seo=seo)
+    return render_page(home_html_content, hero_movie=process_movie_list([hero_movie])[0] if hero_movie else None, latest_movies=process_movie_list(latest_movies), seo=seo)
 
 @app.route('/movie/<int:tmdb_id>')
 def movie_detail(tmdb_id):
@@ -342,7 +331,7 @@ def telegram_webhook():
     
 @app.route('/admin')
 @requires_auth
-def admin(): return render_page(admin_html, seo={"title": "Admin Panel"})
+def admin(): return render_template_string(admin_html, base_layout_html=base_layout_html, seo={"title": "Admin Panel"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
