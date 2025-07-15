@@ -1,6 +1,7 @@
 Flask
 gunicorn
 requests
-pymongo[srv]
+pymongo
 APScheduler
 boto3
+werkzeug
