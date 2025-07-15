@@ -1,5 +1,5 @@
 Flask
-requests
-pymongo
 gunicorn
-python-dotenv
+requests
+pymongo[srv]
+APScheduler
