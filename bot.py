@@ -10,6 +10,7 @@ from functools import wraps
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from threading import Thread
+from werkzeug.utils import secure_filename
 
 # ======================================================================
 # --- এনভায়রনমেন্ট ভেরিয়েবল লোড এবং ভ্যালিডেশন ---
@@ -26,11 +27,7 @@ B2_APPLICATION_KEY = os.environ.get("B2_APPLICATION_KEY")
 B2_ENDPOINT_URL = os.environ.get("B2_ENDPOINT_URL")
 B2_BUCKET_NAME = os.environ.get("B2_BUCKET_NAME")
 
-required_vars = {
-    "MONGO_URI": MONGO_URI, "BOT_TOKEN": BOT_TOKEN, "TMDB_API_KEY": TMDB_API_KEY,
-    "ADMIN_CHANNEL_ID": ADMIN_CHANNEL_ID, "BOT_USERNAME": BOT_USERNAME,
-    "ADMIN_USERNAME": ADMIN_USERNAME, "ADMIN_PASSWORD": ADMIN_PASSWORD,
-}
+required_vars = { "MONGO_URI": MONGO_URI, "BOT_TOKEN": BOT_TOKEN, "TMDB_API_KEY": TMDB_API_KEY, "ADMIN_CHANNEL_ID": ADMIN_CHANNEL_ID, "BOT_USERNAME": BOT_USERNAME, "ADMIN_USERNAME": ADMIN_USERNAME, "ADMIN_PASSWORD": ADMIN_PASSWORD, }
 missing_vars = [name for name, value in required_vars.items() if not value]
 if missing_vars:
     print(f"FATAL: Missing required environment variables: {', '.join(missing_vars)}")
@@ -67,10 +64,13 @@ except Exception as e:
 
 s3_client = None
 if all([B2_KEY_ID, B2_APPLICATION_KEY, B2_ENDPOINT_URL, B2_BUCKET_NAME]):
-    s3_client = boto3.client('s3', endpoint_url=B2_ENDPOINT_URL, aws_access_key_id=B2_KEY_ID, aws_secret_access_key=B2_APPLICATION_KEY)
-    print("SUCCESS: B2/S3 client initialized.")
+    try:
+        s3_client = boto3.client('s3', endpoint_url=B2_ENDPOINT_URL, aws_access_key_id=B2_KEY_ID, aws_secret_access_key=B2_APPLICATION_KEY)
+        print("SUCCESS: B2/S3 client initialized.")
+    except Exception as e:
+        print(f"ERROR: Could not initialize B2/S3 client. Error: {e}")
 else:
-    print("WARNING: B2/S3 credentials not fully set. File upload from Telegram will be disabled.")
+    print("WARNING: B2/S3 credentials not fully set in environment variables. File upload from Telegram will be disabled.")
 
 # --- সিডিউলার সেটআপ ---
 scheduler = BackgroundScheduler(daemon=True)
@@ -83,7 +83,7 @@ def inject_ads():
     return dict(ad_settings=(ad_codes or {}), bot_username=BOT_USERNAME)
 
 # ======================================================================
-# --- HTML টেমপ্লেট ---
+# --- HTML টেমপ্লেট (সম্পূর্ণ এবং আপডেট করা) ---
 # ======================================================================
 index_html = """
 <!DOCTYPE html>
@@ -285,7 +285,6 @@ table { display: block; overflow-x: auto; white-space: nowrap; width: 100%; bord
 th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--light-gray); } th { background: #252525; } td { background: var(--dark-gray); }
 .action-buttons { display: flex; gap: 10px; } .action-buttons a, .action-buttons button, .delete-btn { padding: 6px 12px; border-radius: 4px; text-decoration: none; color: white; border: none; cursor: pointer; }
 .edit-btn { background: #007bff; } .delete-btn { background: #dc3545; }
-.dynamic-item { border: 1px solid var(--light-gray); padding: 15px; margin-bottom: 15px; border-radius: 5px; }
 hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray); margin: 40px 0; }
 </style><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head>
 <body>
@@ -338,7 +337,7 @@ button[type="submit"] { background: var(--netflix-red); color: white; font-weigh
 <body>
   <a href="{{ url_for('admin') }}" class="back-to-admin">← Back to Admin</a>
   <h2>Edit: {{ movie.title }}</h2>
-  <form method="post" enctype="multipart/form-data">
+  <form method="post">
     <div class="form-group"><label>Title:</label><input type="text" name="title" value="{{ movie.title }}" required /></div>
     <div class="form-group"><label>Watch Link (Embed or Direct URL):</label><input type="url" name="watch_link" value="{{ movie.watch_link or '' }}" /></div>
     <div class="form-group"><label>Poster URL:</label><input type="url" name="poster" value="{{ movie.poster or '' }}" /></div>
@@ -399,24 +398,18 @@ def parse_filename(filename):
     return {'type': 'movie', 'title': re.sub(r'\s+', ' ', title).strip().title(), 'year': year, 'languages': languages}
 
 def get_tmdb_details_from_api(title, content_type, year=None):
+    if not TMDB_API_KEY: return {}
     search_type = "tv" if content_type == "series" else "movie"
     try:
         search_url = f"https://api.themoviedb.org/3/search/{search_type}?api_key={TMDB_API_KEY}&query={requests.utils.quote(title)}"
         if year and search_type == "movie": search_url += f"&primary_release_year={year}"
         search_res = requests.get(search_url, timeout=5).json()
-        if not search_res.get("results"): return None
+        if not search_res.get("results"): return {}
         tmdb_id = search_res["results"][0]["id"]
-        detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=videos"
+        detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}"
         res = requests.get(detail_url, timeout=5).json()
-        
-        trailer_key = None
-        for v in res.get("videos", {}).get("results", []):
-            if v.get('type') == 'Trailer' and v.get('site') == 'YouTube':
-                trailer_key = v.get('key')
-                break
-
-        return {"tmdb_id": tmdb_id, "title": res.get("title") or res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "overview": res.get("overview"), "release_date": res.get("release_date") or res.get("first_air_date"), "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average"), "trailer_key": trailer_key }
-    except Exception as e: print(f"TMDb API error for '{title}': {e}"); return None
+        return {"tmdb_id": tmdb_id, "title": res.get("title") or res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "overview": res.get("overview"), "release_date": res.get("release_date") or res.get("first_air_date"), "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average")}
+    except Exception as e: print(f"TMDb API error for '{title}': {e}"); return {}
 
 def get_telegram_file_details(file_id):
     url = f"{TELEGRAM_API_URL}/getFile"
@@ -426,33 +419,62 @@ def get_telegram_file_details(file_id):
     return None
 
 def process_and_upload_file(file_id, original_filename):
+    print("\n--- [BACKGROUND THREAD] STARTING PROCESS ---")
+    print(f"File ID: {file_id}, Original Filename: {original_filename}")
+    print(f"S3 client object exists: {bool(s3_client)}")
+
     if not s3_client:
-        print("FATAL: S3 client not initialized. Cannot process file.")
+        print("--- [BACKGROUND THREAD] FATAL: S3 client was not initialized. Aborting process. ---")
         return
-    print(f"Starting to process file: {original_filename}")
+
+    safe_filename = secure_filename(original_filename)
+    print(f"Sanitized filename: {safe_filename}")
+
     download_url = get_telegram_file_details(file_id)
     if not download_url:
-        print(f"Error: Could not get download URL for {original_filename}")
+        print(f"--- [BACKGROUND THREAD] FAILURE: Could not get Telegram download URL. ---")
         return
+    print(f"Got Telegram download URL: {download_url[:50]}...")
+
     try:
         with requests.get(download_url, stream=True) as r:
             r.raise_for_status()
-            s3_client.upload_fileobj(r.raw, B2_BUCKET_NAME, original_filename, ExtraArgs={'ContentType': 'video/mp4'})
-            uploaded_url = f"https://{B2_BUCKET_NAME}.{B2_ENDPOINT_URL.split('//')[1]}/{original_filename}"
-            print(f"SUCCESS: Uploaded {original_filename} to B2. URL: {uploaded_url}")
+            print("SUCCESS: Telegram file stream is ready for upload.")
+            
+            try:
+                print(f"Uploading '{safe_filename}' to bucket '{B2_BUCKET_NAME}'...")
+                s3_client.upload_fileobj(r.raw, B2_BUCKET_NAME, safe_filename, ExtraArgs={'ContentType': 'video/mp4'})
+                uploaded_url = f"https://{B2_BUCKET_NAME}.{B2_ENDPOINT_URL.split('//')[1]}/{safe_filename}"
+                print(f"--- [BACKGROUND THREAD] SUCCESS: Uploaded to B2. URL: {uploaded_url} ---")
+            except Exception as s3_error:
+                print(f"--- [BACKGROUND THREAD] !!!!!!!!!!!!! B2/S3 UPLOAD FAILED !!!!!!!!!!!!! ---")
+                print(f"Error Type: {type(s3_error).__name__}")
+                print(f"Error Details: {s3_error}")
+                return
 
             parsed_info = parse_filename(original_filename)
-            if not parsed_info or not parsed_info['title']: return
-            
+            if not parsed_info or not parsed_info['title']:
+                print(f"--- [BACKGROUND THREAD] WARNING: Could not parse info from filename. ---")
+                return
+            print(f"Parsed Info: {parsed_info}")
+
             tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info.get('type'), parsed_info.get('year')) or {}
+            print(f"TMDb Data Fetched: {bool(tmdb_data)}")
             
             final_title = tmdb_data.get('title') or parsed_info['title']
             query = {"title": final_title}
-            update_data = {"$set": {"watch_link": uploaded_url, "type": parsed_info.get('type', 'movie'), **{k: v for k, v in tmdb_data.items() if v}}, "$addToSet": {"languages": {"$each": parsed_info.get('languages', [])}}}
-            movies.update_one(query, update_data, upsert=True)
-            print(f"SUCCESS: Database updated for '{final_title}'.")
+            
+            update_data = {"$set": {"watch_link": uploaded_url, "type": parsed_info.get('type', 'movie'), **{k: v for k, v in tmdb_data.items() if v is not None}}, "$addToSet": {"languages": {"$each": parsed_info.get('languages', [])}}}
+            
+            result = movies.update_one(query, update_data, upsert=True)
+            print(f"--- [BACKGROUND THREAD] SUCCESS: Database updated for '{final_title}'. Matched: {result.matched_count}, Modified: {result.modified_count}, UpsertedId: {result.upserted_id} ---")
+
+    except requests.exceptions.RequestException as req_error:
+        print(f"--- [BACKGROUND THREAD] !!!!!!!!!!!!! TELEGRAM DOWNLOAD FAILED !!!!!!!!!!!!! ---")
+        print(f"Error Details: {req_error}")
     except Exception as e:
-        print(f"An unexpected error occurred in process_and_upload_file: {e}")
+        print(f"--- [BACKGROUND THREAD] !!!!!!!!!!!!! AN UNEXPECTED ERROR OCCURRED !!!!!!!!!!!!! ---")
+        print(f"Error Details: {e}")
 
 def process_movie_list(movie_list):
     for item in movie_list:
@@ -519,23 +541,18 @@ def admin():
         title = request.form.get("title")
         watch_link = request.form.get("watch_link")
         video_file = request.files.get('video_file')
-
         if video_file and video_file.filename != '':
             if not s3_client: return "S3 client not configured.", 500
-            filename = video_file.filename
+            filename = secure_filename(video_file.filename)
             try:
                 s3_client.upload_fileobj(video_file, B2_BUCKET_NAME, filename, ExtraArgs={'ContentType': video_file.content_type})
                 watch_link = f"https://{B2_BUCKET_NAME}.{B2_ENDPOINT_URL.split('//')[1]}/{filename}"
-            except Exception as e:
-                return f"Error uploading to S3: {e}", 500
-        
+            except Exception as e: return f"Error uploading to S3: {e}", 500
         parsed_info = parse_filename(title)
         tmdb_data = get_tmdb_details_from_api(parsed_info['title'], 'movie', parsed_info.get('year')) or {}
-        
         movie_data = {**parsed_info, **tmdb_data, "title": tmdb_data.get('title', title), "watch_link": watch_link}
         movies.insert_one(movie_data)
         return redirect(url_for('admin'))
-
     search_query = request.args.get('search', '').strip()
     query_filter = {}
     if search_query: query_filter = {"title": {"$regex": search_query, "$options": "i"}}
@@ -549,16 +566,7 @@ def edit_movie(movie_id):
     movie_obj = movies.find_one({"_id": ObjectId(movie_id)})
     if not movie_obj: return "Movie not found", 404
     if request.method == "POST":
-        update_data = {
-            "title": request.form.get("title"),
-            "watch_link": request.form.get("watch_link"),
-            "poster": request.form.get("poster"), "overview": request.form.get("overview"),
-            "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()],
-            "languages": [lang.strip() for lang in request.form.get("languages", "").split(',') if lang.strip()],
-            "poster_badge": request.form.get("poster_badge", "").strip() or None,
-            "is_trending": request.form.get("is_trending") == "true",
-            "is_coming_soon": request.form.get("is_coming_soon") == "true"
-        }
+        update_data = {"title": request.form.get("title"), "watch_link": request.form.get("watch_link"), "poster": request.form.get("poster"), "overview": request.form.get("overview"), "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], "languages": [lang.strip() for lang in request.form.get("languages", "").split(',') if lang.strip()], "poster_badge": request.form.get("poster_badge", "").strip() or None, "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true" }
         movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data})
         return redirect(url_for('admin'))
     return render_template_string(edit_html, movie=movie_obj)
@@ -602,29 +610,9 @@ def telegram_webhook():
         if file and file.get('file_name'):
             thread = Thread(target=process_and_upload_file, args=(file['file_id'], file['file_name']))
             thread.start()
-            print(f"Webhook received for {file['file_name']}. Started background processing.")
+            print(f"Webhook received for {file['file_name']}. Handed over to background thread.")
             return jsonify(status='ok', reason='processing_started')
-
-    elif 'message' in data:
-        message = data['message']
-        chat_id = message['chat']['id']
-        text = message.get('text', '')
-        if text.startswith('/start'):
-            parts = text.split()
-            if len(parts) > 1:
-                try:
-                    movie_id_str = parts[1].split('_')[0]
-                    movie = movies.find_one({"_id": ObjectId(movie_id_str)})
-                    if movie:
-                        site_url = request.host_url.replace("http://", "https://")
-                        movie_page_url = f"{site_url}movie/{movie['_id']}"
-                        reply_text = f"Here is the link for '{movie['title']}':\n{movie_page_url}"
-                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': reply_text})
-                except Exception as e:
-                    print(f"Error in /start command: {e}")
-            else:
-                requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome! Browse our website for movies."})
-    return jsonify(status='ok')
+    return jsonify(status='ok', reason='no_action_taken')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
