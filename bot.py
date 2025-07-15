@@ -129,40 +129,20 @@ index_html = """
   .hero-buttons .btn { padding: 8px 20px; margin-right: 0.8rem; border: none; border-radius: 4px; font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: opacity 0.3s ease; display: inline-flex; align-items: center; gap: 8px; }
   .btn.btn-primary { background-color: var(--netflix-red); color: white; } .btn.btn-secondary { background-color: rgba(109, 109, 110, 0.7); color: white; } .btn:hover { opacity: 0.8; }
   main { padding: 0 50px; }
-  .movie-card {
-      width: 100%;
-      cursor: pointer;
-      transition: transform 0.3s ease, box-shadow 0.3s ease;
-      background-color: transparent;
-      display: block;
-      position: relative;
-  }
-  .movie-poster {
-      width: 100%;
-      aspect-ratio: 2 / 3;
-      object-fit: cover;
-      display: block;
-      border-radius: 4px;
-  }
-  .poster-badge {
-      position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 5px 10px; font-size: 12px; font-weight: 700; border-radius: 4px; z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-  }
-  .card-info-overlay {
-      position: static; background: none; opacity: 1; transform: none; padding: 8px 5px 0 5px; text-align: left;
-  }
-  .card-info-title {
-      font-size: 0.9rem; font-weight: 500; color: var(--text-light); white-space: normal; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  }
-  @keyframes rgb-glow { 0% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } 33% { box-shadow: 0 0 12px #4158D0, 0 0 4px #4158D0; } 66% { box-shadow: 0 0 12px #C850C0, 0 0 4px #C850C0; } 100% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } }
-  @media (hover: hover) {
-      .movie-card:hover { transform: scale(1.05); z-index: 5; }
-      .movie-card:hover .movie-poster { animation: rgb-glow 2.5s infinite linear; }
-  }
+  .movie-card { display: block; cursor: pointer; transition: transform 0.3s ease; }
+  .poster-wrapper { position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background-color: #222; }
+  .movie-poster { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.4s ease; }
+  .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 4px 8px; font-size: 0.7rem; font-weight: 700; border-radius: 4px; z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+  .rating-badge { position: absolute; top: 10px; right: 10px; background-color: rgba(0, 0, 0, 0.8); color: white; padding: 5px 10px; font-size: 0.8rem; font-weight: 700; border-radius: 20px; z-index: 3; display: flex; align-items: center; gap: 5px; backdrop-filter: blur(5px); }
+  .rating-badge .fa-star { color: #f5c518; }
+  .card-hover-info { position: absolute; bottom: 0; left: 0; right: 0; padding: 15px; background: linear-gradient(to top, rgba(0,0,0,0.95) 20%, transparent); color: white; opacity: 0; transform: translateY(30%); transition: opacity 0.3s ease, transform 0.3s ease; z-index: 2; }
+  .card-info-title { font-size: 1rem; font-weight: 700; margin: 0 0 5px 0; line-height: 1.2; color: var(--text-light); }
+  .card-info-meta { font-size: 0.8rem; color: var(--text-dark); margin: 0; }
+  @media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 10; } .movie-card:hover .movie-poster { transform: scale(1.1); } .movie-card:hover .card-hover-info { opacity: 1; transform: translateY(0); } }
+  @media (hover: none) and (pointer: coarse) { .card-hover-info { opacity: 1; transform: translateY(0); padding: 10px; background: linear-gradient(to top, rgba(0,0,0,0.9) 30%, transparent); } .card-info-title { font-size: 0.8rem; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; display: -webkit-box; } .card-info-meta { display: none; } }
   .full-page-grid-container { padding-top: 100px; padding-bottom: 50px; }
   .full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; }
-  .category-grid, .full-page-grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 15px;
-  }
+  .category-grid, .full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 15px; }
   .category-section { margin: 40px 0; }
   .category-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
   .category-title { font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 1.6rem; margin: 0; }
@@ -195,9 +175,15 @@ index_html = """
 <main>
   {% macro render_movie_card(m) %}
     <a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">
-      {% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}
-      <img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}">
-      <div class="card-info-overlay"><h4 class="card-info-title">{{ m.title }}</h4></div>
+      <div class="poster-wrapper">
+        <img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}">
+        {% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}
+        {% if m.vote_average and m.vote_average > 0 %}<div class="rating-badge"><i class="fas fa-star"></i> {{ "%.1f"|format(m.vote_average) }}</div>{% endif %}
+        <div class="card-hover-info">
+          <h4 class="card-info-title">{{ m.title }}</h4>
+          {% if m.release_date %}<p class="card-info-meta">{{ m.release_date.split('-')[0] }}</p>{% endif %}
+        </div>
+      </div>
     </a>
   {% endmacro %}
 
@@ -302,11 +288,17 @@ detail_html = """
   .ad-container { margin: 30px 0; text-align: center; }
   .related-section-container { padding: 40px 0; background-color: #181818; }
   .related-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 15px; padding: 0 50px; }
-  .movie-card { width: 100%; border-radius: 4px; overflow: hidden; cursor: pointer; transition: transform 0.3s ease; display: block; position: relative; }
-  .movie-poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; }
-  .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 5px 10px; font-size: 12px; font-weight: 700; border-radius: 4px; z-index: 3; }
-  @keyframes rgb-glow { 0% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } 33% { box-shadow: 0 0 12px #4158D0, 0 0 4px #4158D0; } 66% { box-shadow: 0 0 12px #C850C0, 0 0 4px #C850C0; } 100% { box-shadow: 0 0 12px #e50914, 0 0 4px #e50914; } }
-  @media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 5; animation: rgb-glow 2.5s infinite linear; } }
+  .movie-card { display: block; cursor: pointer; transition: transform 0.3s ease; }
+  .poster-wrapper { position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background-color: #222; }
+  .movie-poster { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.4s ease; }
+  .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 4px 8px; font-size: 0.7rem; font-weight: 700; border-radius: 4px; z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+  .rating-badge { position: absolute; top: 10px; right: 10px; background-color: rgba(0, 0, 0, 0.8); color: white; padding: 5px 10px; font-size: 0.8rem; font-weight: 700; border-radius: 20px; z-index: 3; display: flex; align-items: center; gap: 5px; backdrop-filter: blur(5px); }
+  .rating-badge .fa-star { color: #f5c518; }
+  .card-hover-info { position: absolute; bottom: 0; left: 0; right: 0; padding: 15px; background: linear-gradient(to top, rgba(0,0,0,0.95) 20%, transparent); color: white; opacity: 0; transform: translateY(30%); transition: opacity 0.3s ease, transform 0.3s ease; z-index: 2; }
+  .card-info-title { font-size: 1rem; font-weight: 700; margin: 0 0 5px 0; line-height: 1.2; color: var(--text-light); }
+  .card-info-meta { font-size: 0.8rem; color: var(--text-dark); margin: 0; }
+  @media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 10; } .movie-card:hover .movie-poster { transform: scale(1.1); } .movie-card:hover .card-hover-info { opacity: 1; transform: translateY(0); } }
+  @media (hover: none) and (pointer: coarse) { .card-hover-info { opacity: 1; transform: translateY(0); padding: 10px; background: linear-gradient(to top, rgba(0,0,0,0.9) 30%, transparent); } .card-info-title { font-size: 0.8rem; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; display: -webkit-box; } .card-info-meta { display: none; } }
   @media (max-width: 992px) { .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } }
   @media (max-width: 768px) { .detail-header { padding: 20px; } .detail-hero { padding: 80px 20px 40px; } .detail-poster { width: 60%; max-width: 220px; height: auto; } .detail-title { font-size: 2.2rem; }
   .action-btn, .download-button { display: block; width: 100%; max-width: 320px; margin: 0 auto 10px auto; }
@@ -317,7 +309,19 @@ detail_html = """
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
 <body>
-{% macro render_movie_card(m) %}<a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">{% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}<img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}"></a>{% endmacro %}
+{% macro render_movie_card(m) %}
+  <a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">
+    <div class="poster-wrapper">
+      <img class="movie-poster" loading="lazy" src="{{ m.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ m.title }}">
+      {% if m.poster_badge %}<div class="poster-badge">{{ m.poster_badge }}</div>{% endif %}
+      {% if m.vote_average and m.vote_average > 0 %}<div class="rating-badge"><i class="fas fa-star"></i> {{ "%.1f"|format(m.vote_average) }}</div>{% endif %}
+      <div class="card-hover-info">
+        <h4 class="card-info-title">{{ m.title }}</h4>
+        {% if m.release_date %}<p class="card-info-meta">{{ m.release_date.split('-')[0] }}</p>{% endif %}
+      </div>
+    </div>
+  </a>
+{% endmacro %}
 <header class="detail-header"><a href="{{ url_for('home') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
 {% if movie %}
 <div class="detail-hero" style="min-height: auto; padding-bottom: 60px;">
