@@ -26,6 +26,8 @@ B2_KEY_ID = os.environ.get("B2_KEY_ID")
 B2_APPLICATION_KEY = os.environ.get("B2_APPLICATION_KEY")
 B2_ENDPOINT_URL = os.environ.get("B2_ENDPOINT_URL")
 B2_BUCKET_NAME = os.environ.get("B2_BUCKET_NAME")
+TELEGRAM_DEBUG_CHAT_ID = os.environ.get("TELEGRAM_DEBUG_CHAT_ID")
+
 
 required_vars = { "MONGO_URI": MONGO_URI, "BOT_TOKEN": BOT_TOKEN, "TMDB_API_KEY": TMDB_API_KEY, "ADMIN_CHANNEL_ID": ADMIN_CHANNEL_ID, "BOT_USERNAME": BOT_USERNAME, "ADMIN_USERNAME": ADMIN_USERNAME, "ADMIN_PASSWORD": ADMIN_PASSWORD, }
 missing_vars = [name for name, value in required_vars.items() if not value]
@@ -227,7 +229,7 @@ body { font-family: 'Roboto', sans-serif; background: var(--netflix-black); colo
 <header class="detail-header"><a href="{{ url_for('home') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
 {% if movie %}
 <div class="detail-hero"><div class="detail-hero-background" style="background-image: url('{{ movie.poster }}');"></div>
-  <div class="detail-content-wrapper"><img class="detail-poster" src="{{ movie.poster }}" alt="{{ movie.title }}">
+  <div class="detail-content-wrapper"><img class="detail-poster" src="{{ movie.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ movie.title }}">
     <div class="detail-info">
       <h1 class="detail-title">{{ movie.title }}</h1>
       <div class="detail-meta">
@@ -373,6 +375,18 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 # ======================================================================
 # --- হেলপার এবং ব্যাকগ্রাউন্ড প্রসেসিং ফাংশন ---
 # ======================================================================
+def send_telegram_debug_message(message):
+    """ডিবাগ মেসেজ সরাসরি টেলিগ্রামে পাঠায়"""
+    if not TELEGRAM_DEBUG_CHAT_ID:
+        print(f"[DEBUG] {message}") # যদি ডিবাগ আইডি সেট না থাকে, তাহলে শুধু লগে প্রিন্ট করবে
+        return
+    try:
+        url = f"{TELEGRAM_API_URL}/sendMessage"
+        payload = {'chat_id': TELEGRAM_DEBUG_CHAT_ID, 'text': f"🤖 **MovieZone Debug:**\n\n{message}", 'parse_mode': 'Markdown'}
+        requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"Could not send Telegram debug message: {e}")
+
 def parse_filename(filename):
     LANGUAGE_MAP = { 'hindi': 'Hindi', 'hin': 'Hindi', 'english': 'English', 'eng': 'English', 'bengali': 'Bengali', 'bangla': 'Bangla', 'ben': 'Bengali', 'tamil': 'Tamil', 'tam': 'Tamil', 'telugu': 'Telugu', 'tel': 'Telugu', 'kannada': 'Kannada', 'kan': 'Kannada', 'malayalam': 'Malayalam', 'mal': 'Malayalam', 'dual audio': ['Hindi', 'English'], 'multi audio': ['Multi Audio'] }
     cleaned_name = filename.replace('.', ' ').replace('_', ' ').strip()
@@ -419,62 +433,52 @@ def get_telegram_file_details(file_id):
     return None
 
 def process_and_upload_file(file_id, original_filename):
-    print("\n--- [BACKGROUND THREAD] STARTING PROCESS ---")
-    print(f"File ID: {file_id}, Original Filename: {original_filename}")
-    print(f"S3 client object exists: {bool(s3_client)}")
-
+    send_telegram_debug_message(f"✅ **[Step 1/7]**\nProcess started for file:\n`{original_filename}`")
+    
     if not s3_client:
-        print("--- [BACKGROUND THREAD] FATAL: S3 client was not initialized. Aborting process. ---")
+        send_telegram_debug_message(f"❌ **[FATAL ERROR]**\nS3 client is not initialized. Check B2 environment variables.")
         return
 
     safe_filename = secure_filename(original_filename)
-    print(f"Sanitized filename: {safe_filename}")
+    send_telegram_debug_message(f"✅ **[Step 2/7]**\nFilename sanitized to:\n`{safe_filename}`")
 
     download_url = get_telegram_file_details(file_id)
     if not download_url:
-        print(f"--- [BACKGROUND THREAD] FAILURE: Could not get Telegram download URL. ---")
+        send_telegram_debug_message(f"❌ **[ERROR at Step 3]**\nCould not get download URL from Telegram. Check `BOT_TOKEN`.")
         return
-    print(f"Got Telegram download URL: {download_url[:50]}...")
+    send_telegram_debug_message(f"✅ **[Step 3/7]**\nGot Telegram download URL.")
 
     try:
-        with requests.get(download_url, stream=True) as r:
+        with requests.get(download_url, stream=True, timeout=600) as r: # 10 minute timeout for download
             r.raise_for_status()
-            print("SUCCESS: Telegram file stream is ready for upload.")
+            send_telegram_debug_message(f"✅ **[Step 4/7]**\nTelegram file stream is ready for upload.")
             
             try:
-                print(f"Uploading '{safe_filename}' to bucket '{B2_BUCKET_NAME}'...")
                 s3_client.upload_fileobj(r.raw, B2_BUCKET_NAME, safe_filename, ExtraArgs={'ContentType': 'video/mp4'})
                 uploaded_url = f"https://{B2_BUCKET_NAME}.{B2_ENDPOINT_URL.split('//')[1]}/{safe_filename}"
-                print(f"--- [BACKGROUND THREAD] SUCCESS: Uploaded to B2. URL: {uploaded_url} ---")
+                send_telegram_debug_message(f"✅ **[Step 5/7]**\nSuccessfully uploaded to B2/S3. URL generated.")
             except Exception as s3_error:
-                print(f"--- [BACKGROUND THREAD] !!!!!!!!!!!!! B2/S3 UPLOAD FAILED !!!!!!!!!!!!! ---")
-                print(f"Error Type: {type(s3_error).__name__}")
-                print(f"Error Details: {s3_error}")
+                error_details = f"Error Type: {type(s3_error).__name__}\nDetails: {s3_error}"
+                send_telegram_debug_message(f"❌ **[ERROR at Step 5 - UPLOAD FAILED]**\n{error_details}")
                 return
 
             parsed_info = parse_filename(original_filename)
             if not parsed_info or not parsed_info['title']:
-                print(f"--- [BACKGROUND THREAD] WARNING: Could not parse info from filename. ---")
+                send_telegram_debug_message(f"⚠️ **[WARNING at Step 6]**\nCould not parse title from filename: `{original_filename}`")
                 return
-            print(f"Parsed Info: {parsed_info}")
+            send_telegram_debug_message(f"✅ **[Step 6/7]**\nParsed info: `{parsed_info}`")
 
             tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info.get('type'), parsed_info.get('year')) or {}
-            print(f"TMDb Data Fetched: {bool(tmdb_data)}")
             
             final_title = tmdb_data.get('title') or parsed_info['title']
             query = {"title": final_title}
-            
             update_data = {"$set": {"watch_link": uploaded_url, "type": parsed_info.get('type', 'movie'), **{k: v for k, v in tmdb_data.items() if v is not None}}, "$addToSet": {"languages": {"$each": parsed_info.get('languages', [])}}}
             
             result = movies.update_one(query, update_data, upsert=True)
-            print(f"--- [BACKGROUND THREAD] SUCCESS: Database updated for '{final_title}'. Matched: {result.matched_count}, Modified: {result.modified_count}, UpsertedId: {result.upserted_id} ---")
+            send_telegram_debug_message(f"✅ **[Step 7/7]**\nDatabase updated for '{final_title}'.\n\n🎉 **Process Complete!**")
 
-    except requests.exceptions.RequestException as req_error:
-        print(f"--- [BACKGROUND THREAD] !!!!!!!!!!!!! TELEGRAM DOWNLOAD FAILED !!!!!!!!!!!!! ---")
-        print(f"Error Details: {req_error}")
     except Exception as e:
-        print(f"--- [BACKGROUND THREAD] !!!!!!!!!!!!! AN UNEXPECTED ERROR OCCURRED !!!!!!!!!!!!! ---")
-        print(f"Error Details: {e}")
+        send_telegram_debug_message(f"❌ **[UNEXPECTED FATAL ERROR]**\nAn error occurred in the main process.\nDetails: {e}")
 
 def process_movie_list(movie_list):
     for item in movie_list:
@@ -517,8 +521,6 @@ def movie_detail(movie_id):
 def render_full_list(content_list, title):
     return render_template_string(index_html, movies=process_movie_list(content_list), query=title, is_full_page_list=True)
 
-@app.route('/badge/<badge_name>')
-def movies_by_badge(badge_name): return render_full_list(list(movies.find({"poster_badge": badge_name}).sort('_id', -1)), f'Tag: {badge_name}')
 @app.route('/genres')
 def genres_page(): return render_template_string(genres_html, genres=sorted([g for g in movies.distinct("genres") if g]), title="Browse by Genre")
 @app.route('/genre/<genre_name>')
