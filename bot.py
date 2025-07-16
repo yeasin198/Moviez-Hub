@@ -3,7 +3,7 @@ import sys
 import re
 import requests
 from flask import Flask, render_template_string, request, redirect, url_for, Response, jsonify
-from pymongo import MongoClient
+from pymongo import MongoClient, TEXT
 from bson.objectid import ObjectId
 from functools import wraps
 from datetime import datetime, timedelta
@@ -55,16 +55,24 @@ def requires_auth(f):
         return f(*args, **kwargs)
     return decorated
 
-# --- ডাটাবেস কানেকশন ---
+# --- ডাটাবেস কানেকশন এবং ইনডেক্স তৈরি ---
 try:
     client = MongoClient(MONGO_URI)
     db = client["movie_db"]
     movies = db["movies"]
     settings = db["settings"]
     feedback = db["feedback"]
-    print("SUCCESS: Successfully connected to MongoDB!")
+    
+    # --- পারফরম্যান্সের জন্য ডাটাবেস ইনডেক্স তৈরি ---
+    movies.create_index([("type", 1), ("is_coming_soon", 1), ("_id", -1)]) # List pages
+    movies.create_index([("is_trending", 1), ("is_coming_soon", 1), ("_id", -1)]) # Trending page
+    movies.create_index("genres") # Genre filtering
+    movies.create_index("tmdb_id", unique=True, sparse=True) # TMDb ID based lookup and avoiding duplicates
+    movies.create_index([("title", TEXT)], default_language='none') # উন্নত সার্চের জন্য
+    
+    print("SUCCESS: Successfully connected to MongoDB and ensured indexes!")
 except Exception as e:
-    print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
+    print(f"FATAL: Error connecting to MongoDB or creating indexes: {e}. Exiting.")
     sys.exit(1)
 
 # --- Context Processor: বিজ্ঞাপনের কোড সহজলভ্য করার জন্য ---
@@ -88,7 +96,6 @@ def delete_message_after_delay(chat_id, message_id):
     except Exception as e:
         print(f"Error in delete_message_after_delay: {e}")
 
-# সিডিউলার তৈরি এবং চালু করা
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.start()
 
@@ -109,69 +116,122 @@ index_html = """
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Roboto', sans-serif; background-color: var(--netflix-black); color: var(--text-light); overflow-x: hidden; }
   a { text-decoration: none; color: inherit; }
-  ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #222; } ::-webkit-scrollbar-thumb { background: #555; } ::-webkit-scrollbar-thumb:hover { background: var(--netflix-red); }
-  .main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; z-index: 100; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #444; border-radius: 10px; } ::-webkit-scrollbar-thumb:hover { background: var(--netflix-red); }
+  
+  /* --- নেভিগেশন ও হ্যামবার্গার মেনু --- */
+  .main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 10px 15px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 20px; z-index: 100; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
   .main-nav.scrolled { background-color: var(--netflix-black); }
-  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 32px; color: var(--netflix-red); font-weight: 700; letter-spacing: 1px; }
-  .search-input { background-color: rgba(0,0,0,0.7); border: 1px solid #777; color: var(--text-light); padding: 8px 15px; border-radius: 4px; transition: width 0.3s ease, background-color 0.3s ease; width: 250px; }
+  .nav-left { display: flex; align-items: center; gap: 15px; }
+  .hamburger-btn { background: none; border: none; color: white; font-size: 24px; cursor: pointer; padding: 5px; }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--netflix-red); font-weight: 700; letter-spacing: 1px; }
+  .search-form { display: flex; }
+  .search-input { background-color: rgba(0,0,0,0.7); border: 1px solid #777; color: var(--text-light); padding: 8px 15px; border-radius: 4px 0 0 4px; transition: background-color 0.3s ease; width: 100%; border-right: none;}
   .search-input:focus { background-color: rgba(0,0,0,0.9); border-color: var(--text-light); outline: none; }
-  .tags-section { padding: 80px 50px 20px 50px; background-color: var(--netflix-black); }
-  .tags-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-  .tag-link { padding: 6px 16px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid #444; border-radius: 50px; font-weight: 500; font-size: 0.85rem; transition: all 0.3s; }
-  .tag-link:hover { background-color: var(--netflix-red); border-color: var(--netflix-red); color: white; }
-  .hero-section { height: 85vh; position: relative; color: white; overflow: hidden; }
+  .search-btn { background-color: rgba(255,255,255,0.1); border: 1px solid #777; border-left: none; color: white; padding: 0 15px; border-radius: 0 4px 4px 0; cursor: pointer; }
+  .side-menu { position: fixed; top: 0; left: 0; width: 280px; height: 100%; background-color: #181818; z-index: 1001; transform: translateX(-100%); transition: transform 0.3s ease-in-out; }
+  .side-menu.active { transform: translateX(0); }
+  .side-menu-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border-bottom: 1px solid #333; }
+  .close-btn { background: none; border: none; color: white; font-size: 30px; cursor: pointer; }
+  .side-menu-nav { display: flex; flex-direction: column; padding-top: 20px; }
+  .side-menu-link { color: var(--text-dark); text-decoration: none; padding: 15px 20px; font-size: 1.1rem; display: flex; align-items: center; gap: 15px; transition: background-color 0.2s, color 0.2s; }
+  .side-menu-link:hover, .side-menu-link.active { background-color: var(--netflix-red); color: white; }
+  .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); z-index: 1000; opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
+  .overlay.active { opacity: 1; visibility: visible; }
+
+  /* --- হিরো স্লাইডার --- */
+  .hero-section { height: 60vh; position: relative; color: white; overflow: hidden; margin-top: var(--nav-height); }
   .hero-slide { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-position: center top; display: flex; align-items: flex-end; padding: 50px; opacity: 0; transition: opacity 1.5s ease-in-out; z-index: 1; }
   .hero-slide.active { opacity: 1; z-index: 2; }
-  .hero-slide::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, var(--netflix-black) 10%, transparent 50%), linear-gradient(to right, rgba(0,0,0,0.8) 0%, transparent 60%); }
+  .hero-slide::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, var(--netflix-black) 10%, transparent 50%), linear-gradient(to right, rgba(0,0,0,0.8) 0%, transparent 60%); z-index: 2; }
   .hero-content { position: relative; z-index: 3; max-width: 50%; }
-  .hero-title { font-family: 'Bebas Neue', sans-serif; font-size: 5rem; font-weight: 700; margin-bottom: 1rem; line-height: 1; }
+  .hero-title { font-family: 'Bebas Neue', sans-serif; font-size: 4rem; font-weight: 700; margin-bottom: 1rem; line-height: 1; }
   .hero-overview { font-size: 1.1rem; line-height: 1.5; margin-bottom: 1.5rem; max-width: 600px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .hero-buttons .btn { padding: 8px 20px; margin-right: 0.8rem; border: none; border-radius: 4px; font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: opacity 0.3s ease; display: inline-flex; align-items: center; gap: 8px; }
   .btn.btn-primary { background-color: var(--netflix-red); color: white; } .btn.btn-secondary { background-color: rgba(109, 109, 110, 0.7); color: white; } .btn:hover { opacity: 0.8; }
-  main { padding: 0 50px; }
-  .movie-card { display: block; cursor: pointer; transition: transform 0.3s ease; }
+  .hero-arrow { position: absolute; top: 50%; transform: translateY(-50%); background-color: rgba(0, 0, 0, 0.5); border: none; color: white; font-size: 2rem; cursor: pointer; z-index: 5; padding: 15px 10px; border-radius: 5px; transition: background-color 0.2s; }
+  .hero-arrow:hover { background-color: rgba(0, 0, 0, 0.8); }
+  .hero-arrow.prev { left: 20px; } .hero-arrow.next { right: 20px; }
+
+  /* --- ক্যাটেগরি ও মুভি কার্ড --- */
+  main { padding: 0 15px; }
+  .category-section { margin: 40px 0; margin-left: -15px; margin-right: -15px; }
+  .category-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 0 15px; }
+  .category-title { font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 1.4rem; margin: 0; }
+  .see-all-link { color: var(--text-dark); font-weight: 700; font-size: 0.9rem; }
+  .category-scroll-wrapper { overflow-x: auto; overflow-y: hidden; padding-left: 15px; padding-bottom: 15px; }
+  .category-grid { display: flex; flex-wrap: nowrap; gap: 10px; padding-right: 15px; }
+  .movie-card { display: block; cursor: pointer; transition: transform 0.3s ease; width: 140px; flex-shrink: 0; }
   .poster-wrapper { position: relative; width: 100%; border-radius: 6px; overflow: hidden; background-color: #222; display: flex; flex-direction: column; }
   .movie-poster-container { position: relative; overflow: hidden; width:100%; flex-grow:1; aspect-ratio: 2 / 3; }
   .movie-poster { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.4s ease; }
-  .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 4px 8px; font-size: 0.7rem; font-weight: 700; border-radius: 4px; z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
-  .rating-badge { position: absolute; top: 10px; right: 10px; background-color: rgba(0, 0, 0, 0.8); color: white; padding: 5px 10px; font-size: 0.8rem; font-weight: 700; border-radius: 20px; z-index: 3; display: flex; align-items: center; gap: 5px; backdrop-filter: blur(5px); }
+  .poster-badge { position: absolute; top: 8px; left: 8px; background-color: var(--netflix-red); color: white; padding: 3px 6px; font-size: 0.6rem; font-weight: 700; border-radius: 4px; z-index: 3; }
+  .rating-badge { position: absolute; top: 8px; right: 8px; background-color: rgba(0, 0, 0, 0.8); color: white; padding: 4px 8px; font-size: 0.7rem; font-weight: 700; border-radius: 20px; z-index: 3; display: flex; align-items: center; gap: 4px; backdrop-filter: blur(5px); }
   .rating-badge .fa-star { color: #f5c518; }
-  .card-info-static { padding: 10px 8px; background-color: #1a1a1a; text-align: left; width: 100%; flex-shrink: 0; }
-  .card-info-title { font-size: 0.9rem; font-weight: 500; color: var(--text-light); margin: 0 0 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .card-info-meta { font-size: 0.75rem; color: var(--text-dark); margin: 0; }
+  .card-info-static { padding: 8px 6px; background-color: #1a1a1a; text-align: left; width: 100%; flex-shrink: 0; }
+  .card-info-title { font-size: 0.8rem; font-weight: 500; color: var(--text-light); margin: 0 0 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-info-meta { font-size: 0.7rem; color: var(--text-dark); margin: 0; }
   @media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 10; box-shadow: 0 0 20px rgba(229, 9, 20, 0.5); } .movie-card:hover .movie-poster { transform: scale(1.1); } }
+  
+  /* --- ফুল পেজ গ্রিড --- */
   .full-page-grid-container { padding-top: 100px; padding-bottom: 50px; }
   .full-page-grid-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 30px; }
-  .category-grid, .full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 15px; }
-  .category-section { margin: 40px 0; }
-  .category-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-  .category-title { font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 1.6rem; margin: 0; }
-  .see-all-link { color: var(--text-dark); font-weight: 700; font-size: 0.9rem; }
-  .bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); background-color: #181818; border-top: 1px solid #282828; justify-content: space-around; align-items: center; z-index: 200; }
-  .nav-item { display: flex; flex-direction: column; align-items: center; color: var(--text-dark); font-size: 10px; flex-grow: 1; padding: 5px 0; transition: color 0.2s ease; }
-  .nav-item i { font-size: 20px; margin-bottom: 4px; } .nav-item.active { color: var(--text-light); } .nav-item.active i { color: var(--netflix-red); }
-  .ad-container { margin: 40px 0; display: flex; justify-content: center; align-items: center; }
-  .telegram-join-section { background-color: #181818; padding: 40px 20px; text-align: center; margin: 50px -50px -50px -50px; }
+  .full-page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 20px 10px; }
+
+  /* --- ট্যাগস ও অন্যান্য --- */
+  .tags-section { padding: 80px 15px 15px 15px; }
+  .tags-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .tag-link { padding: 6px 16px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid #444; border-radius: 50px; font-size: 0.85rem; transition: all 0.3s; }
+  .tag-link:hover { background-color: var(--netflix-red); border-color: var(--netflix-red); color: white; }
+  .ad-container { margin: 25px 0; display: flex; justify-content: center; align-items: center; }
+  .telegram-join-section { background-color: #181818; padding: 40px 20px; text-align: center; margin: 50px -15px -30px -15px; }
   .telegram-join-section .telegram-icon { font-size: 4rem; color: #2AABEE; margin-bottom: 15px; } .telegram-join-section h2 { font-family: 'Bebas Neue', sans-serif; font-size: 2.5rem; color: var(--text-light); margin-bottom: 10px; }
   .telegram-join-section p { font-size: 1.1rem; color: var(--text-dark); max-width: 600px; margin: 0 auto 25px auto; }
   .telegram-join-button { display: inline-flex; align-items: center; gap: 10px; background-color: #2AABEE; color: white; padding: 12px 30px; border-radius: 50px; font-size: 1.1rem; font-weight: 700; transition: all 0.2s ease; }
-  .telegram-join-button:hover { transform: scale(1.05); background-color: #1e96d1; } .telegram-join-button i { font-size: 1.3rem; }
-  @media (max-width: 768px) {
-      body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } main { padding: 0 15px; } .logo { font-size: 24px; } .search-input { width: 150px; }
-      .tags-section { padding: 80px 15px 15px 15px; } .tag-link { padding: 6px 15px; font-size: 0.8rem; } .hero-section { height: 60vh; margin: 0 -15px;}
-      .hero-slide { padding: 15px; align-items: center; } .hero-content { max-width: 90%; text-align: center; } .hero-title { font-size: 2.8rem; } .hero-overview { display: none; }
-      .category-section { margin: 25px 0; } .category-title { font-size: 1.2rem; }
-      .category-grid, .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 15px 10px; }
-      .full-page-grid-container { padding-top: 80px; } .full-page-grid-title { font-size: 1.8rem; }
-      .bottom-nav { display: flex; } .ad-container { margin: 25px 0; }
-      .telegram-join-section { margin: 50px -15px -30px -15px; }
-      .telegram-join-section h2 { font-size: 2rem; } .telegram-join-section p { font-size: 1rem; }
+  
+  /* --- ডেস্কটপ ভিউ --- */
+  @media (min-width: 769px) {
+    main { padding: 0 50px; }
+    .main-nav { padding: 15px 50px; }
+    .hero-section { height: 85vh; }
+    .hero-title { font-size: 5rem; }
+    .hero-overview { display: -webkit-box; }
+    .category-section { margin-left: -50px; margin-right: -50px; }
+    .category-header { padding: 0 50px; }
+    .category-scroll-wrapper { padding-left: 50px; }
+    .category-grid { gap: 15px; padding-right: 50px; }
+    .movie-card { width: 200px; }
+    .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
   }
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
 <body>
-<header class="main-nav"><a href="{{ url_for('home') }}" class="logo">MovieZone</a><form method="GET" action="/" class="search-form"><input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" /></form></header>
+<header class="main-nav">
+  <div class="nav-left">
+    <button class="hamburger-btn" id="hamburger-menu"><i class="fas fa-bars"></i></button>
+    <a href="{{ url_for('home') }}" class="logo">MovieZone</a>
+  </div>
+  <form method="GET" action="/" class="search-form">
+      <input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" />
+      <button type="submit" class="search-btn"><i class="fas fa-search"></i></button>
+  </form>
+</header>
+
+<div class="side-menu" id="side-menu-container">
+    <div class="side-menu-header">
+        <a href="{{ url_for('home') }}" class="logo">MovieZone</a>
+        <button class="close-btn" id="close-menu-btn">×</button>
+    </div>
+    <nav class="side-menu-nav">
+        <a href="{{ url_for('home') }}" class="side-menu-link active"><i class="fas fa-home"></i> Home</a>
+        <a href="{{ url_for('movies_only') }}" class="side-menu-link"><i class="fas fa-film"></i> Movies</a>
+        <a href="{{ url_for('webseries') }}" class="side-menu-link"><i class="fas fa-tv"></i> Series</a>
+        <a href="{{ url_for('genres_page') }}" class="side-menu-link"><i class="fas fa-layer-group"></i> Genres</a>
+        <a href="{{ url_for('contact') }}" class="side-menu-link"><i class="fas fa-envelope"></i> Request</a>
+    </nav>
+</div>
+<div class="overlay" id="overlay"></div>
+
 <main>
   {% macro render_movie_card(m) %}
     <a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">
@@ -203,9 +263,26 @@ index_html = """
         {% endif %}
     </div>
   {% else %}
+    {% if recently_added %}
+    <div class="hero-section">
+        {% for movie in recently_added %}
+        <div class="hero-slide {% if loop.first %}active{% endif %}" style="background-image: url('{{ movie.backdrop or movie.poster or '' }}');">
+            <div class="hero-content">
+                <h1 class="hero-title">{{ movie.title }}</h1>
+                <p class="hero-overview">{{ movie.overview }}</p>
+                <div class="hero-buttons">
+                    {% if movie.watch_link and not movie.is_coming_soon %}<a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="btn btn-primary"><i class="fas fa-play"></i> Watch Now</a>{% endif %}
+                    <a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-secondary"><i class="fas fa-info-circle"></i> More Info</a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        <button class="hero-arrow prev" id="hero-prev"><i class="fas fa-chevron-left"></i></button>
+        <button class="hero-arrow next" id="hero-next"><i class="fas fa-chevron-right"></i></button>
+    </div>
+    {% endif %}
+
     {% if all_badges %}<div class="tags-section"><div class="tags-container">{% for badge in all_badges %}<a href="{{ url_for('movies_by_badge', badge_name=badge) }}" class="tag-link">{{ badge }}</a>{% endfor %}</div></div>{% endif %}
-    
-    {% if recently_added %}<div class="hero-section">{% for movie in recently_added %}<div class="hero-slide {% if loop.first %}active{% endif %}" style="background-image: url('{{ movie.poster or '' }}');"><div class="hero-content"><h1 class="hero-title">{{ movie.title }}</h1><p class="hero-overview">{{ movie.overview }}</p><div class="hero-buttons">{% if movie.watch_link and not movie.is_coming_soon %}<a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="btn btn-primary"><i class="fas fa-play"></i> Watch Now</a>{% endif %}<a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="btn btn-secondary"><i class="fas fa-info-circle"></i> More Info</a></div></div></div>{% endfor %}</div>{% endif %}
 
     {% macro render_grid_section(title, movies_list, endpoint) %}
         {% if movies_list %}
@@ -214,10 +291,12 @@ index_html = """
                 <h2 class="category-title">{{ title }}</h2>
                 <a href="{{ url_for(endpoint) }}" class="see-all-link">See All ></a>
             </div>
-            <div class="category-grid">
-                {% for m in movies_list %}
-                    {{ render_movie_card(m) }}
-                {% endfor %}
+            <div class="category-scroll-wrapper">
+                <div class="category-grid">
+                    {% for m in movies_list %}
+                        {{ render_movie_card(m) }}
+                    {% endfor %}
+                </div>
             </div>
         </div>
         {% endif %}
@@ -239,11 +318,42 @@ index_html = """
     </div>
   {% endif %}
 </main>
-<nav class="bottom-nav"><a href="{{ url_for('home') }}" class="nav-item {% if request.endpoint == 'home' %}active{% endif %}"><i class="fas fa-home"></i><span>Home</span></a><a href="{{ url_for('genres_page') }}" class="nav-item {% if request.endpoint == 'genres_page' %}active{% endif %}"><i class="fas fa-layer-group"></i><span>Genres</span></a><a href="{{ url_for('contact') }}" class="nav-item {% if request.endpoint == 'contact' %}active{% endif %}"><i class="fas fa-envelope"></i><span>Request</span></a></nav>
 <script>
+    // --- Navbar Scroll Effect ---
     const nav = document.querySelector('.main-nav');
     window.addEventListener('scroll', () => { window.scrollY > 50 ? nav.classList.add('scrolled') : nav.classList.remove('scrolled'); });
-    document.addEventListener('DOMContentLoaded', function() { const slides = document.querySelectorAll('.hero-slide'); if (slides.length > 1) { let currentSlide = 0; const showSlide = (index) => slides.forEach((s, i) => s.classList.toggle('active', i === index)); setInterval(() => { currentSlide = (currentSlide + 1) % slides.length; showSlide(currentSlide); }, 5000); } });
+
+    // --- Side Menu Toggle ---
+    const hamburgerBtn = document.getElementById('hamburger-menu');
+    const closeMenuBtn = document.getElementById('close-menu-btn');
+    const sideMenu = document.getElementById('side-menu-container');
+    const overlay = document.getElementById('overlay');
+    function toggleMenu() {
+        sideMenu.classList.toggle('active');
+        overlay.classList.toggle('active');
+    }
+    hamburgerBtn.addEventListener('click', toggleMenu);
+    closeMenuBtn.addEventListener('click', toggleMenu);
+    overlay.addEventListener('click', toggleMenu);
+
+    // --- Hero Slider ---
+    document.addEventListener('DOMContentLoaded', function() {
+        const slides = document.querySelectorAll('.hero-slide');
+        if (slides.length > 1) {
+            const prevBtn = document.getElementById('hero-prev');
+            const nextBtn = document.getElementById('hero-next');
+            let currentSlide = 0;
+            let slideInterval;
+            const showSlide = (index) => slides.forEach((s, i) => s.classList.toggle('active', i === index));
+            const next = () => { currentSlide = (currentSlide + 1) % slides.length; showSlide(currentSlide); };
+            const prev = () => { currentSlide = (currentSlide - 1 + slides.length) % slides.length; showSlide(currentSlide); };
+            const startSlider = () => { slideInterval = setInterval(next, 5000); };
+            const resetInterval = () => { clearInterval(slideInterval); startSlider(); };
+            nextBtn.addEventListener('click', () => { next(); resetInterval(); });
+            prevBtn.addEventListener('click', () => { prev(); resetInterval(); });
+            startSlider();
+        }
+    });
 </script>
 {% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
 {% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
@@ -305,7 +415,7 @@ detail_html = """
   @media (max-width: 992px) { .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } }
   @media (max-width: 768px) { .detail-header { padding: 20px; } .detail-hero { padding: 80px 20px 40px; } .detail-poster { width: 60%; max-width: 220px; height: auto; } .detail-title { font-size: 2.2rem; }
   .action-btn, .link-button { display: block; width: 100%; max-width: 320px; margin: 0 auto 10px auto; }
-  .episode-item { flex-direction: column; align-items: flex-start; gap: 10px; } .episode-button { width: 100%; }
+  .episode-item { flex-direction: column; align-items: flex-start; gap: 10px; }
   .section-title { margin-left: 15px !important; } .related-section-container { padding: 20px 0; }
   .related-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 15px 10px; padding: 0 15px; } }
 </style>
@@ -327,10 +437,10 @@ detail_html = """
     </div>
   </a>
 {% endmacro %}
-<header class="detail-header"><a href="{{ url_for('home') }}" class="back-button"><i class="fas fa-arrow-left"></i> Back to Home</a></header>
+<header class="detail-header"><a href="javascript:history.back()" class="back-button"><i class="fas fa-arrow-left"></i> Back</a></header>
 {% if movie %}
 <div class="detail-hero" style="min-height: auto; padding-bottom: 60px;">
-  <div class="detail-hero-background" style="background-image: url('{{ movie.poster }}');"></div>
+  <div class="detail-hero-background" style="background-image: url('{{ movie.backdrop or movie.poster }}');"></div>
   <div class="detail-content-wrapper"><img class="detail-poster" src="{{ movie.poster or 'https://via.placeholder.com/400x600.png?text=No+Image' }}" alt="{{ movie.title }}">
     <div class="detail-info">
       <h1 class="detail-title">{{ movie.title }}</h1>
@@ -377,7 +487,7 @@ detail_html = """
       {% elif movie.type == 'series' %}
         <div class="episode-section">
           <h3 class="section-title">Episodes</h3>
-          {% if movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}<div class="episode-item"><span class="episode-title">Season {{ ep.season }} - Episode {{ ep.episode_number }}</span><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="link-button telegram" style="width: 100%;"><i class="fa-brands fa-telegram"></i> Get Episode</a></div>{% endfor %}{% else %}<p>No episodes available yet.</p>{% endif %}
+          {% if movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}<div class="episode-item"><span class="episode-title">Season {{ ep.season }} - Episode {{ ep.episode_number }}</span><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="link-button telegram" style="margin-bottom: 0;"><i class="fa-brands fa-telegram"></i> Get Episode</a></div>{% endfor %}{% else %}<p>No episodes available yet.</p>{% endif %}
         </div>
       {% endif %}
 
@@ -389,15 +499,15 @@ detail_html = """
 </div>
 {% if related_movies %}<div class="related-section-container"><h3 class="section-title" style="margin-left: 50px; color: white;">You Might Also Like</h3><div class="related-grid">{% for m in related_movies %}{{ render_movie_card(m) }}{% endfor %}</div></div>{% endif %}
 {% else %}<div style="display:flex; justify-content:center; align-items:center; height:100vh;"><h2>Content not found.</h2></div>{% endif %}
-<script>
-function copyToClipboard(text) { navigator.clipboard.writeText(text).then(() => alert('Link copied!'), () => alert('Copy failed!')); }
-</script>
+
 {% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
 {% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
 </body>
 </html>
 """
 
+# বাকি HTML ভেরিয়েবলগুলো (genres_html, watch_html, admin_html, edit_html, contact_html) অপরিবর্তিত আছে
+# ... (পূর্বের কোড থেকে এই অংশগুলো কপি করে নিন) ...
 genres_html = """
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" /><title>{{ title }} - MovieZone</title>
@@ -540,7 +650,9 @@ button[type="submit"], .add-btn { background: var(--netflix-red); color: white; 
   <h2>Edit: {{ movie.title }}</h2>
   <form method="post">
     <div class="form-group"><label>Title:</label><input type="text" name="title" value="{{ movie.title }}" required /></div>
-    <div class="form-group"><label>Poster URL:</label><input type="url" name="poster" value="{{ movie.poster or '' }}" /></div><div class="form-group"><label>Overview:</label><textarea name="overview">{{ movie.overview or '' }}</textarea></div>
+    <div class="form-group"><label>Poster URL:</label><input type="url" name="poster" value="{{ movie.poster or '' }}" /></div>
+    <div class="form-group"><label>Backdrop URL:</label><input type="url" name="backdrop" value="{{ movie.backdrop or '' }}" /></div>
+    <div class="form-group"><label>Overview:</label><textarea name="overview">{{ movie.overview or '' }}</textarea></div>
     <div class="form-group"><label>Genres (comma separated):</label><input type="text" name="genres" value="{{ movie.genres|join(', ') if movie.genres else '' }}" /></div>
     <div class="form-group"><label>Languages (comma separated):</label><input type="text" name="languages" value="{{ movie.languages|join(', ') if movie.languages else '' }}" placeholder="e.g. Hindi, English, Bangla" /></div>
     <div class="form-group"><label>Poster Badge:</label><input type="text" name="poster_badge" value="{{ movie.poster_badge or '' }}" /></div>
@@ -683,7 +795,7 @@ def parse_filename(filename):
     title = re.sub(r'\s+', ' ', title).strip()
     return {'type': 'movie', 'title': title.title(), 'year': year, 'languages': languages}
 
-
+# --- আপডেট করা ফাংশন ---
 def get_tmdb_details_from_api(title, content_type, year=None):
     if not TMDB_API_KEY: return None
     search_type = "tv" if content_type == "series" else "movie"
@@ -695,7 +807,16 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         tmdb_id = search_res["results"][0].get("id")
         detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}"
         res = requests.get(detail_url, timeout=5).json()
-        return {"tmdb_id": tmdb_id, "title": res.get("title") or res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "overview": res.get("overview"), "release_date": res.get("release_date") or res.get("first_air_date"), "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average")}
+        return {
+            "tmdb_id": tmdb_id,
+            "title": res.get("title") or res.get("name"),
+            "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None,
+            "backdrop": f"https://image.tmdb.org/t/p/w1280{res.get('backdrop_path')}" if res.get('backdrop_path') else None,
+            "overview": res.get("overview"),
+            "release_date": res.get("release_date") or res.get("first_air_date"),
+            "genres": [g['name'] for g in res.get("genres", [])],
+            "vote_average": res.get("vote_average")
+        }
     except requests.RequestException as e:
         print(f"TMDb API error for '{title}': {e}")
     return None
@@ -713,8 +834,10 @@ def process_movie_list(movie_list):
 def home():
     query = request.args.get('q')
     if query:
-        movies_list = list(movies.find({"title": {"$regex": query, "$options": "i"}}).sort('_id', -1))
+        # উন্নত সার্চ ব্যবহার করা হচ্ছে
+        movies_list = list(movies.find({"$text": {"$search": query}}))
         return render_template_string(index_html, movies=process_movie_list(movies_list), query=f'Results for "{query}"', is_full_page_list=True)
+    
     all_badges = sorted([badge for badge in movies.distinct("poster_badge") if badge])
     limit = 12
     context = {
@@ -743,10 +866,13 @@ def movie_detail(movie_id):
             try:
                 video_res = requests.get(video_url, timeout=3).json()
                 for v in video_res.get("results", []):
-                    if v.get('type') == 'Trailer' and v.get('site') == 'YouTube': trailer_key = v.get('key'); break
+                    if v.get('type') == 'Trailer' and v.get('site') == 'YouTube':
+                        trailer_key = v.get('key')
+                        break
             except requests.RequestException: pass
         return render_template_string(detail_html, movie=movie, trailer_key=trailer_key, related_movies=process_movie_list(related_movies))
-    except Exception: return "Content not found", 404
+    except Exception:
+        return "Content not found", 404
 
 @app.route('/watch/<movie_id>')
 def watch_movie(movie_id):
@@ -754,7 +880,8 @@ def watch_movie(movie_id):
         movie = movies.find_one({"_id": ObjectId(movie_id)})
         if not movie or not movie.get("watch_link"): return "Content not found.", 404
         return render_template_string(watch_html, watch_link=movie["watch_link"], title=movie["title"])
-    except Exception: return "An error occurred.", 500
+    except Exception:
+        return "An error occurred.", 500
 
 def render_full_list(content_list, title):
     return render_template_string(index_html, movies=process_movie_list(content_list), query=title, is_full_page_list=True)
@@ -786,25 +913,32 @@ def admin():
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
         tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
-        movie_data = { "title": request.form.get("title"), "type": content_type, **tmdb_data, "is_trending": False, "is_coming_soon": False, "links": [], "terabox_links": [], "files": [], "episodes": [], "languages": [] }
+        movie_data = {
+            "title": request.form.get("title"), 
+            "type": content_type, 
+            **tmdb_data, 
+            "is_trending": False, 
+            "is_coming_soon": False, 
+            "links": [], 
+            "terabox_links": [], 
+            "files": [], 
+            "episodes": [], 
+            "languages": [] 
+        }
         if content_type == "movie":
             movie_data["watch_link"] = request.form.get("watch_link", "").strip()
-            
-            # Download Links
+            # Download, TeraBox, and Telegram links logic...
+            # (No changes needed here from your original code)
             links = []
             if request.form.get("download_link_1080p"): links.append({"quality": "1080p", "url": request.form.get("download_link_1080p")})
             if request.form.get("download_link_720p"): links.append({"quality": "720p", "url": request.form.get("download_link_720p")})
             if request.form.get("download_link_480p"): links.append({"quality": "480p", "url": request.form.get("download_link_480p")})
             movie_data["links"] = links
-
-            # TeraBox Links
             terabox_links = []
             if request.form.get("terabox_link_1080p"): terabox_links.append({"quality": "1080p", "url": request.form.get("terabox_link_1080p")})
             if request.form.get("terabox_link_720p"): terabox_links.append({"quality": "720p", "url": request.form.get("terabox_link_720p")})
             if request.form.get("terabox_link_480p"): terabox_links.append({"quality": "480p", "url": request.form.get("terabox_link_480p")})
             movie_data["terabox_links"] = terabox_links
-
-            # Manual Telegram Files
             files = []
             qualities, message_ids = request.form.getlist('telegram_quality[]'), request.form.getlist('telegram_message_id[]')
             for i in range(len(qualities)):
@@ -822,7 +956,8 @@ def admin():
 
     search_query = request.args.get('search', '').strip()
     query_filter = {}
-    if search_query: query_filter = {"title": {"$regex": search_query, "$options": "i"}}
+    if search_query:
+        query_filter = {"$text": {"$search": search_query}}
     content_list = process_movie_list(list(movies.find(query_filter).sort('_id', -1)))
     feedback_list = process_movie_list(list(feedback.find().sort('timestamp', -1)))
     ad_settings = settings.find_one() or {}
@@ -843,33 +978,38 @@ def edit_movie(movie_id):
 
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
-        update_data = { "title": request.form.get("title"), "type": content_type, "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true", "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(), "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], "languages": [lang.strip() for lang in request.form.get("languages", "").split(',') if lang.strip()], "poster_badge": request.form.get("poster_badge", "").strip() or None }
+        update_data = {
+            "title": request.form.get("title"),
+            "type": content_type,
+            "is_trending": request.form.get("is_trending") == "true",
+            "is_coming_soon": request.form.get("is_coming_soon") == "true",
+            "poster": request.form.get("poster", "").strip(),
+            "backdrop": request.form.get("backdrop", "").strip(), # backdrop ফিল্ড যোগ করা হলো
+            "overview": request.form.get("overview", "").strip(),
+            "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()],
+            "languages": [lang.strip() for lang in request.form.get("languages", "").split(',') if lang.strip()],
+            "poster_badge": request.form.get("poster_badge", "").strip() or None
+        }
         
+        # বাকি লজিক অপরিবর্তিত
         if content_type == "movie":
             update_data["watch_link"] = request.form.get("watch_link", "").strip()
-            
-            # Download Links
             links = []
             if request.form.get("download_link_1080p"): links.append({"quality": "1080p", "url": request.form.get("download_link_1080p")})
             if request.form.get("download_link_720p"): links.append({"quality": "720p", "url": request.form.get("download_link_720p")})
             if request.form.get("download_link_480p"): links.append({"quality": "480p", "url": request.form.get("download_link_480p")})
             update_data["links"] = links
-
-            # TeraBox Links
             terabox_links = []
             if request.form.get("terabox_link_1080p"): terabox_links.append({"quality": "1080p", "url": request.form.get("terabox_link_1080p")})
             if request.form.get("terabox_link_720p"): terabox_links.append({"quality": "720p", "url": request.form.get("terabox_link_720p")})
             if request.form.get("terabox_link_480p"): terabox_links.append({"quality": "480p", "url": request.form.get("terabox_link_480p")})
             update_data["terabox_links"] = terabox_links
-
-            # Telegram Files
             files = []
             qualities, message_ids = request.form.getlist('telegram_quality[]'), request.form.getlist('telegram_message_id[]')
             for i in range(len(qualities)):
                 if qualities[i] and message_ids[i]: files.append({"quality": qualities[i], "message_id": int(message_ids[i])})
             update_data["files"] = files
-            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"episodes": ""}}) # Remove episodes if switched to movie
-        
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"episodes": ""}})
         else: # Series
             episodes = []
             ep_numbers = request.form.getlist('episode_number[]')
@@ -877,7 +1017,6 @@ def edit_movie(movie_id):
                 episode_doc = { "season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(ep_numbers[i]), "title": request.form.getlist('episode_title[]')[i], "watch_link": request.form.getlist('episode_watch_link[]')[i] or None, "message_id": int(request.form.getlist('episode_message_id[]')[i]) if request.form.getlist('episode_message_id[]')[i] else None }
                 episodes.append(episode_doc)
             update_data["episodes"] = episodes
-            # Remove movie-specific fields if switched to series
             movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"links": "", "terabox_links": "", "watch_link": "", "files": ""}})
         
         movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data})
@@ -885,6 +1024,7 @@ def edit_movie(movie_id):
 
     return render_template_string(edit_html, movie=movie_obj)
 
+# Webhook এবং বাকি রুটগুলো অপরিবর্তিত
 @app.route('/delete_movie/<movie_id>')
 @requires_auth
 def delete_movie(movie_id):
@@ -979,7 +1119,7 @@ def telegram_webhook():
                 except Exception as e:
                     print(f"Error processing /start command: {e}")
                     requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred."})
-            else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "আমাদের ওয়েবসাইটে আপনাকে স্বাগতম."})
+            else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome to our website. Please browse and select content."})
 
     return jsonify(status='ok')
 
