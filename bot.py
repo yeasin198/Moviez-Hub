@@ -277,14 +277,15 @@ detail_html = """
   .detail-meta span { font-weight: 700; color: var(--text-light); }
   .detail-meta span i { margin-right: 5px; color: var(--text-dark); }
   .detail-overview { font-size: 1.1rem; line-height: 1.6; margin-bottom: 30px; }
-  .action-btn { background-color: var(--netflix-red); color: white; padding: 15px 30px; font-size: 1.2rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; margin-bottom: 15px; transition: all 0.2s ease; }
+  .action-btn { background-color: var(--netflix-red); color: white; padding: 15px 30px; font-size: 1.2rem; font-weight: 700; border: none; border-radius: 5px; cursor: pointer; display: block; text-align: center; gap: 10px; text-decoration: none; margin-bottom: 15px; transition: all 0.2s ease; }
   .action-btn:hover { transform: scale(1.05); background-color: #f61f29; }
   .section-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; padding-bottom: 5px; border-bottom: 2px solid var(--netflix-red); display: inline-block; }
-  .video-container { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; background: #000; border-radius: 8px; }
+  .video-container { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; background: #000; border-radius: 8px; margin-top: 20px; }
   .video-container iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-  .download-section, .episode-section { margin-top: 30px; }
-  .download-button, .episode-button { display: inline-block; padding: 12px 25px; background-color: #444; color: white; text-decoration: none; border-radius: 4px; font-weight: 700; transition: background-color 0.3s ease; margin-right: 10px; margin-bottom: 10px; text-align: center; vertical-align: middle; }
-  .copy-button { background-color: #555; color: white; border: none; padding: 8px 15px; font-size: 0.9rem; cursor: pointer; border-radius: 4px; margin-left: -5px; margin-bottom: 10px; vertical-align: middle; }
+  .links-section { margin-top: 30px; }
+  .link-button { display: block; padding: 12px 25px; background-color: #444; color: white; text-decoration: none; border-radius: 4px; font-weight: 700; transition: background-color 0.3s ease; margin-bottom: 10px; text-align: center; }
+  .link-button.telegram { background-color: #2AABEE; }
+  .episode-section { margin-top: 30px; }
   .episode-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 15px; border-radius: 5px; background-color: #1a1a1a; border-left: 4px solid var(--netflix-red); }
   .episode-title { font-size: 1.1rem; font-weight: 500; color: #fff; }
   .ad-container { margin: 30px 0; text-align: center; }
@@ -303,7 +304,7 @@ detail_html = """
   @media (hover: hover) { .movie-card:hover { transform: scale(1.05); z-index: 10; box-shadow: 0 0 20px rgba(229, 9, 20, 0.5); } .movie-card:hover .movie-poster { transform: scale(1.1); } }
   @media (max-width: 992px) { .detail-content-wrapper { flex-direction: column; align-items: center; text-align: center; } .detail-info { max-width: 100%; } .detail-title { font-size: 3.5rem; } }
   @media (max-width: 768px) { .detail-header { padding: 20px; } .detail-hero { padding: 80px 20px 40px; } .detail-poster { width: 60%; max-width: 220px; height: auto; } .detail-title { font-size: 2.2rem; }
-  .action-btn, .download-button { display: block; width: 100%; max-width: 320px; margin: 0 auto 10px auto; }
+  .action-btn, .link-button { display: block; width: 100%; max-width: 320px; margin: 0 auto 10px auto; }
   .episode-item { flex-direction: column; align-items: flex-start; gap: 10px; } .episode-button { width: 100%; }
   .section-title { margin-left: 15px !important; } .related-section-container { padding: 20px 0; }
   .related-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 15px 10px; padding: 0 15px; } }
@@ -340,22 +341,49 @@ detail_html = """
         {% if movie.genres %}<span>{{ movie.genres | join(' • ') }}</span>{% endif %}
       </div>
       <p class="detail-overview">{{ movie.overview }}</p>
-      {% if movie.type == 'movie' and movie.watch_link %}<a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="action-btn"><i class="fas fa-play"></i> Watch Now</a>{% endif %}
+      
       {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
-      {% if trailer_key %}<div class="trailer-section"><h3 class="section-title">Watch Trailer</h3><div class="video-container"><iframe src="https://www.youtube.com/embed/{{ trailer_key }}" frameborder="0" allowfullscreen></iframe></div></div>{% endif %}
-      <div style="margin: 20px 0;"><a href="{{ url_for('contact', report_id=movie._id, title=movie.title) }}" class="download-button" style="background-color:#5a5a5a; text-align:center;"><i class="fas fa-flag"></i> Report a Problem</a></div>
-      {% if movie.is_coming_soon %}<h3 class="section-title">Coming Soon</h3>
+
+      {% if movie.is_coming_soon %}
+        <h3 class="section-title">Coming Soon</h3>
       {% elif movie.type == 'movie' %}
-        <div class="download-section">
-          {% if movie.links %}<h3 class="section-title">Download Links</h3>{% for link_item in movie.links %}<div><a class="download-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> {{ link_item.quality }}</a><button class="copy-button" onclick="copyToClipboard('{{ link_item.url }}')"><i class="fas fa-copy"></i></button></div>{% endfor %}{% endif %}
-          {% if movie.files %}<h3 class="section-title">Get from Telegram</h3>{% for file in movie.files | sort(attribute='quality') %}<a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="action-btn" style="background-color: #2AABEE; display: block; text-align:center; margin-top:10px; margin-bottom: 0;"><i class="fa-brands fa-telegram"></i> Get {{ file.quality }}</a>{% endfor %}{% endif %}
+        <div class="links-section">
+            {% if movie.watch_link %}
+                <h3 class="section-title">Watch Online</h3>
+                <a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="action-btn"><i class="fas fa-play"></i> Watch Now</a>
+            {% endif %}
+
+            {% if movie.terabox_links %}
+                <h3 class="section-title" style="margin-top: 20px;">TeraBox Links</h3>
+                {% for link_item in movie.terabox_links | sort(attribute='quality', reverse=True) %}
+                    <a class="link-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-cloud-download-alt"></i> TeraBox {{ link_item.quality }}</a>
+                {% endfor %}
+            {% endif %}
+
+            {% if movie.links %}
+                <h3 class="section-title" style="margin-top: 20px;">Download Links</h3>
+                {% for link_item in movie.links | sort(attribute='quality', reverse=True) %}
+                    <a class="link-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> Download {{ link_item.quality }}</a>
+                {% endfor %}
+            {% endif %}
+
+            {% if movie.files %}
+                <h3 class="section-title" style="margin-top: 20px;">Get from Telegram</h3>
+                {% for file in movie.files | sort(attribute='quality', reverse=True) %}
+                    <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="link-button telegram"><i class="fa-brands fa-telegram"></i> Get {{ file.quality }}</a>
+                {% endfor %}
+            {% endif %}
         </div>
       {% elif movie.type == 'series' %}
         <div class="episode-section">
           <h3 class="section-title">Episodes</h3>
-          {% if movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}<div class="episode-item"><span class="episode-title">Season {{ ep.season }} - Episode {{ ep.episode_number }}</span><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="episode-button" style="background-color: #2AABEE;"><i class="fa-brands fa-telegram"></i> Get Episode</a></div>{% endfor %}{% else %}<p>No episodes available yet.</p>{% endif %}
+          {% if movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}<div class="episode-item"><span class="episode-title">Season {{ ep.season }} - Episode {{ ep.episode_number }}</span><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="link-button telegram" style="width: 100%;"><i class="fa-brands fa-telegram"></i> Get Episode</a></div>{% endfor %}{% else %}<p>No episodes available yet.</p>{% endif %}
         </div>
       {% endif %}
+
+      {% if trailer_key %}<div class="trailer-section" style="margin-top: 30px;"><h3 class="section-title">Watch Trailer</h3><div class="video-container"><iframe src="https://www.youtube.com/embed/{{ trailer_key }}" frameborder="0" allowfullscreen></iframe></div></div>{% endif %}
+      <div style="margin: 20px 0;"><a href="{{ url_for('contact', report_id=movie._id, title=movie.title) }}" class="link-button" style="background-color:#5a5a5a; text-align:center;"><i class="fas fa-flag"></i> Report a Problem</a></div>
+
     </div>
   </div>
 </div>
@@ -421,6 +449,7 @@ th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--li
 .edit-btn { background: #007bff; } .delete-btn { background: #dc3545; }
 .dynamic-item { border: 1px solid var(--light-gray); padding: 15px; margin-bottom: 15px; border-radius: 5px; }
 hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray); margin: 40px 0; }
+.link-section { border-left: 3px solid var(--netflix-red); padding-left: 15px; margin-top: 20px;}
 </style><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head>
 <body>
   <h2>বিজ্ঞাপন পরিচালনা (Ad Management)</h2>
@@ -430,14 +459,34 @@ hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray)
   <form method="post" action="{{ url_for('admin') }}">
     <div class="form-group"><label>Title (Required):</label><input type="text" name="title" required /></div>
     <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleFields()"><option value="movie">Movie</option><option value="series">TV/Web Series</option></select></div>
+    
     <div id="movie_fields">
-      <div class="form-group"><label>Watch Link (Embed URL):</label><input type="url" name="watch_link" /></div><hr><p><b>OR</b> Download Links (Manual)</p>
-      <div class="form-group"><label>480p Link:</label><input type="url" name="link_480p" /></div>
-      <div class="form-group"><label>720p Link:</label><input type="url" name="link_720p" /></div>
-      <div class="form-group"><label>1080p Link:</label><input type="url" name="link_1080p" /></div>
-      <hr><p><b>OR</b> Get from Telegram</p>
-      <div id="telegram_files_container"></div><button type="button" onclick="addTelegramFileField()" class="add-btn">Add Telegram File</button>
+        <div class="link-section">
+          <h3>Watch Online</h3>
+          <div class="form-group"><label>Watch Link (Embed URL):</label><input type="url" name="watch_link" /></div>
+        </div>
+
+        <div class="link-section">
+            <h3>TeraBox Links</h3>
+            <div class="form-group"><label>1080p TeraBox Link:</label><input type="url" name="terabox_link_1080p" /></div>
+            <div class="form-group"><label>720p TeraBox Link:</label><input type="url" name="terabox_link_720p" /></div>
+            <div class="form-group"><label>480p TeraBox Link:</label><input type="url" name="terabox_link_480p" /></div>
+        </div>
+
+        <div class="link-section">
+            <h3>Download Links (Manual)</h3>
+            <div class="form-group"><label>1080p Download Link:</label><input type="url" name="download_link_1080p" /></div>
+            <div class="form-group"><label>720p Download Link:</label><input type="url" name="download_link_720p" /></div>
+            <div class="form-group"><label>480p Download Link:</label><input type="url" name="download_link_480p" /></div>
+        </div>
+
+        <div class="link-section">
+            <h3>Telegram Files (Auto-upload via channel)</h3>
+            <p style="color: #aaa; font-size: 0.9em;">(Use this section if files are uploaded to the admin channel. The system will auto-populate them. This manual section is for adding them if needed.)</p>
+            <div id="telegram_files_container"></div><button type="button" onclick="addTelegramFileField()" class="add-btn">Add Telegram File Manually</button>
+        </div>
     </div>
+    
     <div id="episode_fields" style="display: none;">
       <h3>Episodes</h3><div id="episodes_container"></div>
       <button type="button" onclick="addEpisodeField()" class="add-btn">Add Episode</button>
@@ -484,6 +533,7 @@ input[type="checkbox"] { width: auto; margin-right: 10px; transform: scale(1.2);
 button[type="submit"], .add-btn { background: var(--netflix-red); color: white; font-weight: 700; cursor: pointer; border: none; padding: 12px 25px; border-radius: 4px; font-size: 1rem; }
 .back-to-admin { display: inline-block; margin-bottom: 20px; color: var(--netflix-red); text-decoration: none; font-weight: bold; }
 .dynamic-item { border: 1px solid var(--light-gray); padding: 15px; margin-bottom: 15px; border-radius: 5px; } .delete-btn { background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+.link-section { border-left: 3px solid var(--netflix-red); padding-left: 15px; margin-top: 20px;}
 </style><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Roboto:wght@400;700&display=swap" rel="stylesheet"></head>
 <body>
   <a href="{{ url_for('admin') }}" class="back-to-admin">← Back to Admin</a>
@@ -497,20 +547,37 @@ button[type="submit"], .add-btn { background: var(--netflix-red); color: white; 
     <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleFields()"><option value="movie" {% if movie.type == 'movie' %}selected{% endif %}>Movie</option><option value="series" {% if movie.type == 'series' %}selected{% endif %}>TV/Web Series</option></select></div>
     
     <div id="movie_fields">
-        <div class="form-group"><label>Watch Link:</label><input type="url" name="watch_link" value="{{ movie.watch_link or '' }}" /></div><hr><p><b>OR</b> Download Links (Manual)</p>
-        <div class="form-group"><label>480p Link:</label><input type="url" name="link_480p" value="{% for l in movie.links %}{% if l.quality == '480p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
-        <div class="form-group"><label>720p Link:</label><input type="url" name="link_720p" value="{% for l in movie.links %}{% if l.quality == '720p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
-        <div class="form-group"><label>1080p Link:</label><input type="url" name="link_1080p" value="{% for l in movie.links %}{% if l.quality == '1080p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
-        <hr><p><b>OR</b> Get from Telegram</p>
-        <div id="telegram_files_container">
-            {% if movie.type == 'movie' and movie.files %}{% for file in movie.files %}
-            <div class="dynamic-item">
-                <div class="form-group"><label>Quality:</label><input type="text" name="telegram_quality[]" value="{{ file.quality }}" required /></div>
-                <div class="form-group"><label>Message ID:</label><input type="number" name="telegram_message_id[]" value="{{ file.message_id }}" required /></div>
-                <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove</button>
-            </div>
-            {% endfor %}{% endif %}
-        </div><button type="button" onclick="addTelegramFileField()" class="add-btn">Add Telegram File</button>
+        <div class="link-section">
+            <h3>Watch Online</h3>
+            <div class="form-group"><label>Watch Link (Embed URL):</label><input type="url" name="watch_link" value="{{ movie.watch_link or '' }}" /></div>
+        </div>
+
+        <div class="link-section">
+            <h3>TeraBox Links</h3>
+            <div class="form-group"><label>1080p TeraBox Link:</label><input type="url" name="terabox_link_1080p" value="{% for l in movie.terabox_links %}{% if l.quality == '1080p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+            <div class="form-group"><label>720p TeraBox Link:</label><input type="url" name="terabox_link_720p" value="{% for l in movie.terabox_links %}{% if l.quality == '720p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+            <div class="form-group"><label>480p TeraBox Link:</label><input type="url" name="terabox_link_480p" value="{% for l in movie.terabox_links %}{% if l.quality == '480p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+        </div>
+        
+        <div class="link-section">
+            <h3>Download Links (Manual)</h3>
+            <div class="form-group"><label>1080p Download Link:</label><input type="url" name="download_link_1080p" value="{% for l in movie.links %}{% if l.quality == '1080p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+            <div class="form-group"><label>720p Download Link:</label><input type="url" name="download_link_720p" value="{% for l in movie.links %}{% if l.quality == '720p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+            <div class="form-group"><label>480p Download Link:</label><input type="url" name="download_link_480p" value="{% for l in movie.links %}{% if l.quality == '480p' %}{{ l.url }}{% endif %}{% endfor %}" /></div>
+        </div>
+
+        <div class="link-section">
+            <h3>Telegram Files</h3>
+            <div id="telegram_files_container">
+                {% if movie.type == 'movie' and movie.files %}{% for file in movie.files %}
+                <div class="dynamic-item">
+                    <div class="form-group"><label>Quality:</label><input type="text" name="telegram_quality[]" value="{{ file.quality }}" required /></div>
+                    <div class="form-group"><label>Message ID:</label><input type="number" name="telegram_message_id[]" value="{{ file.message_id }}" required /></div>
+                    <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove</button>
+                </div>
+                {% endfor %}{% endif %}
+            </div><button type="button" onclick="addTelegramFileField()" class="add-btn">Add Telegram File</button>
+        </div>
     </div>
 
     <div id="episode_fields" style="display: none;">
@@ -719,20 +786,31 @@ def admin():
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
         tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
-        movie_data = { "title": request.form.get("title"), "type": content_type, **tmdb_data, "is_trending": False, "is_coming_soon": False, "links": [], "files": [], "episodes": [], "languages": [] }
+        movie_data = { "title": request.form.get("title"), "type": content_type, **tmdb_data, "is_trending": False, "is_coming_soon": False, "links": [], "terabox_links": [], "files": [], "episodes": [], "languages": [] }
         if content_type == "movie":
-            movie_data["watch_link"] = request.form.get("watch_link", "")
+            movie_data["watch_link"] = request.form.get("watch_link", "").strip()
+            
+            # Download Links
             links = []
-            if request.form.get("link_480p"): links.append({"quality": "480p", "url": request.form.get("link_480p")})
-            if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
-            if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
+            if request.form.get("download_link_1080p"): links.append({"quality": "1080p", "url": request.form.get("download_link_1080p")})
+            if request.form.get("download_link_720p"): links.append({"quality": "720p", "url": request.form.get("download_link_720p")})
+            if request.form.get("download_link_480p"): links.append({"quality": "480p", "url": request.form.get("download_link_480p")})
             movie_data["links"] = links
+
+            # TeraBox Links
+            terabox_links = []
+            if request.form.get("terabox_link_1080p"): terabox_links.append({"quality": "1080p", "url": request.form.get("terabox_link_1080p")})
+            if request.form.get("terabox_link_720p"): terabox_links.append({"quality": "720p", "url": request.form.get("terabox_link_720p")})
+            if request.form.get("terabox_link_480p"): terabox_links.append({"quality": "480p", "url": request.form.get("terabox_link_480p")})
+            movie_data["terabox_links"] = terabox_links
+
+            # Manual Telegram Files
             files = []
             qualities, message_ids = request.form.getlist('telegram_quality[]'), request.form.getlist('telegram_message_id[]')
             for i in range(len(qualities)):
                 if qualities[i] and message_ids[i]: files.append({"quality": qualities[i], "message_id": int(message_ids[i])})
             movie_data["files"] = files
-        else:
+        else: # Series
             episodes = []
             ep_numbers = request.form.getlist('episode_number[]')
             for i in range(len(ep_numbers)):
@@ -747,7 +825,8 @@ def admin():
     if search_query: query_filter = {"title": {"$regex": search_query, "$options": "i"}}
     content_list = process_movie_list(list(movies.find(query_filter).sort('_id', -1)))
     feedback_list = process_movie_list(list(feedback.find().sort('timestamp', -1)))
-    return render_template_string(admin_html, content_list=content_list, feedback_list=feedback_list, search_query=search_query)
+    ad_settings = settings.find_one() or {}
+    return render_template_string(admin_html, content_list=content_list, feedback_list=feedback_list, search_query=search_query, ad_settings=ad_settings)
 
 @app.route('/admin/save_ads', methods=['POST'])
 @requires_auth
@@ -765,27 +844,42 @@ def edit_movie(movie_id):
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
         update_data = { "title": request.form.get("title"), "type": content_type, "is_trending": request.form.get("is_trending") == "true", "is_coming_soon": request.form.get("is_coming_soon") == "true", "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(), "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()], "languages": [lang.strip() for lang in request.form.get("languages", "").split(',') if lang.strip()], "poster_badge": request.form.get("poster_badge", "").strip() or None }
+        
         if content_type == "movie":
-            update_data["watch_link"] = request.form.get("watch_link", "")
+            update_data["watch_link"] = request.form.get("watch_link", "").strip()
+            
+            # Download Links
             links = []
-            if request.form.get("link_480p"): links.append({"quality": "480p", "url": request.form.get("link_480p")})
-            if request.form.get("link_720p"): links.append({"quality": "720p", "url": request.form.get("link_720p")})
-            if request.form.get("link_1080p"): links.append({"quality": "1080p", "url": request.form.get("link_1080p")})
+            if request.form.get("download_link_1080p"): links.append({"quality": "1080p", "url": request.form.get("download_link_1080p")})
+            if request.form.get("download_link_720p"): links.append({"quality": "720p", "url": request.form.get("download_link_720p")})
+            if request.form.get("download_link_480p"): links.append({"quality": "480p", "url": request.form.get("download_link_480p")})
             update_data["links"] = links
+
+            # TeraBox Links
+            terabox_links = []
+            if request.form.get("terabox_link_1080p"): terabox_links.append({"quality": "1080p", "url": request.form.get("terabox_link_1080p")})
+            if request.form.get("terabox_link_720p"): terabox_links.append({"quality": "720p", "url": request.form.get("terabox_link_720p")})
+            if request.form.get("terabox_link_480p"): terabox_links.append({"quality": "480p", "url": request.form.get("terabox_link_480p")})
+            update_data["terabox_links"] = terabox_links
+
+            # Telegram Files
             files = []
             qualities, message_ids = request.form.getlist('telegram_quality[]'), request.form.getlist('telegram_message_id[]')
             for i in range(len(qualities)):
                 if qualities[i] and message_ids[i]: files.append({"quality": qualities[i], "message_id": int(message_ids[i])})
             update_data["files"] = files
-            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"episodes": ""}})
-        else:
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"episodes": ""}}) # Remove episodes if switched to movie
+        
+        else: # Series
             episodes = []
             ep_numbers = request.form.getlist('episode_number[]')
             for i in range(len(ep_numbers)):
                 episode_doc = { "season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(ep_numbers[i]), "title": request.form.getlist('episode_title[]')[i], "watch_link": request.form.getlist('episode_watch_link[]')[i] or None, "message_id": int(request.form.getlist('episode_message_id[]')[i]) if request.form.getlist('episode_message_id[]')[i] else None }
                 episodes.append(episode_doc)
             update_data["episodes"] = episodes
-            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"links": "", "watch_link": "", "files": ""}})
+            # Remove movie-specific fields if switched to series
+            movies.update_one({"_id": ObjectId(movie_id)}, {"$unset": {"links": "", "terabox_links": "", "watch_link": "", "files": ""}})
+        
         movies.update_one({"_id": ObjectId(movie_id)}, {"$set": update_data})
         return redirect(url_for('admin'))
 
