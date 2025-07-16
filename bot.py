@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import requests
+import time
 from flask import Flask, render_template_string, request, redirect, url_for, Response, jsonify
 from pymongo import MongoClient, TEXT
 from bson.objectid import ObjectId
@@ -19,12 +20,18 @@ ADMIN_CHANNEL_ID = os.environ.get("ADMIN_CHANNEL_ID")
 BOT_USERNAME = os.environ.get("BOT_USERNAME")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+# --- নতুন ভেরিয়েবল ---
+LINK_GENERATOR_BOT_USERNAME = os.environ.get("LINK_GENERATOR_BOT_USERNAME")
+LINK_CAPTURE_CHANNEL_ID = os.environ.get("LINK_CAPTURE_CHANNEL_ID")
+
 
 # --- প্রয়োজনীয় ভেরিয়েবলগুলো সেট করা হয়েছে কিনা তা পরীক্ষা করা ---
 required_vars = {
     "MONGO_URI": MONGO_URI, "BOT_TOKEN": BOT_TOKEN, "TMDB_API_KEY": TMDB_API_KEY,
     "ADMIN_CHANNEL_ID": ADMIN_CHANNEL_ID, "BOT_USERNAME": BOT_USERNAME,
     "ADMIN_USERNAME": ADMIN_USERNAME, "ADMIN_PASSWORD": ADMIN_PASSWORD,
+    "LINK_GENERATOR_BOT_USERNAME": LINK_GENERATOR_BOT_USERNAME,
+    "LINK_CAPTURE_CHANNEL_ID": LINK_CAPTURE_CHANNEL_ID
 }
 
 missing_vars = [name for name, value in required_vars.items() if not value]
@@ -126,7 +133,6 @@ index_html = """
   .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); z-index: 1000; opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
   .overlay.active { opacity: 1; visibility: visible; }
 
-  /* --- চূড়ান্ত হিরো স্লাইডার স্টাইল --- */
   .hero-section-wrapper { display: flex; flex-direction: column; align-items: center; margin-top: calc(var(--nav-height) + 20px); padding: 0 15px; }
   .hero-slider-container { position: relative; width: 100%; max-width: 800px; overflow: hidden; border-radius: 16px; }
   .hero-slider-wrapper { display: flex; transition: transform 0.5s ease-in-out; }
@@ -146,15 +152,13 @@ index_html = """
   .hero-arrow { background: transparent; border: 2px solid #555; color: #999; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; cursor: pointer; transition: all 0.2s; }
   .hero-arrow:hover { background-color: #555; color: white; }
 
-  /* --- Main Content & Cards --- */
   main { padding: 0 15px; margin-top: 40px;}
-  .category-section { margin: 40px 0; margin-left: -15px; margin-right: -15px; }
-  .category-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 0 15px; }
+  .category-section { margin: 40px 0; }
+  .category-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
   .category-title { font-family: 'Roboto', sans-serif; font-weight: 700; font-size: 1.4rem; margin: 0; }
   .see-all-link { color: var(--text-dark); font-weight: 700; font-size: 0.9rem; }
-  .category-scroll-wrapper { overflow-x: auto; overflow-y: hidden; padding-left: 15px; padding-bottom: 15px; }
-  .category-grid { display: flex; flex-wrap: nowrap; gap: 10px; padding-right: 15px; }
-  .movie-card { display: block; cursor: pointer; transition: transform 0.3s ease; width: 140px; flex-shrink: 0; }
+  .category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 20px 10px; }
+  .movie-card { display: block; cursor: pointer; transition: transform 0.3s ease; }
   .poster-wrapper { position: relative; width: 100%; border-radius: 6px; overflow: hidden; background-color: #222; display: flex; flex-direction: column; }
   .movie-poster-container { position: relative; overflow: hidden; width:100%; flex-grow:1; aspect-ratio: 2 / 3; }
   .movie-poster { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.4s ease; }
@@ -170,12 +174,7 @@ index_html = """
     .hero-title { font-size: 2rem; }
     .hero-overview { font-size: 1rem; }
     .hero-buttons .btn { font-size: 1rem; }
-    .category-section { margin-left: -50px; margin-right: -50px; }
-    .category-header { padding: 0 50px; }
-    .category-scroll-wrapper { padding-left: 50px; }
-    .category-grid { gap: 15px; padding-right: 50px; }
-    .movie-card { width: 200px; }
-    .full-page-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+    .category-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 25px 15px; }
   }
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
@@ -211,11 +210,10 @@ index_html = """
       </div>
     </a>
   {% endmacro %}
-  
   {% if is_full_page_list %}
     <div class="full-page-grid-container"><h2 class="full-page-grid-title">{{ query }}</h2>
         {% if movies|length == 0 %}<p style="text-align:center; color: var(--text-dark); margin-top: 40px;">No content found.</p>
-        {% else %}<div class="full-page-grid">{% for m in movies %}{{ render_movie_card(m) }}{% endfor %}</div>{% endif %}
+        {% else %}<div class="category-grid">{% for m in movies %}{{ render_movie_card(m) }}{% endfor %}</div>{% endif %}
     </div>
   {% else %}
     {% if recently_added %}
@@ -243,21 +241,18 @@ index_html = """
         </div>
     </div>
     {% endif %}
-
     {% macro render_grid_section(title, movies_list, endpoint) %}
         {% if movies_list %}<div class="category-section">
             <div class="category-header"> <h2 class="category-title">{{ title }}</h2> <a href="{{ url_for(endpoint) }}" class="see-all-link">See All ></a> </div>
-            <div class="category-scroll-wrapper"><div class="category-grid"> {% for m in movies_list %}{{ render_movie_card(m) }}{% endfor %} </div></div>
+            <div class="category-grid"> {% for m in movies_list %}{{ render_movie_card(m) }}{% endfor %} </div>
         </div>{% endif %}
     {% endmacro %}
-
     {{ render_grid_section('Trending Now', trending_movies, 'trending_movies') }}
     {% if ad_settings.banner_ad_code %}<div class="ad-container">{{ ad_settings.banner_ad_code|safe }}</div>{% endif %}
     {{ render_grid_section('Latest Movies', latest_movies, 'movies_only') }}
     {% if ad_settings.native_banner_code %}<div class="ad-container">{{ ad_settings.native_banner_code|safe }}</div>{% endif %}
     {{ render_grid_section('Web Series', latest_series, 'webseries') }}
     {{ render_grid_section('Coming Soon', coming_soon_movies, 'coming_soon') }}
-    
   {% endif %}
 </main>
 <script>
@@ -366,8 +361,8 @@ detail_html = """
       {% if movie.is_coming_soon %}<h3 class="section-title">Coming Soon</h3>
       {% elif movie.type == 'movie' %}<div class="links-section">
             {% if movie.watch_link %}<h3 class="section-title">Watch Online</h3><a href="{{ url_for('watch_movie', movie_id=movie._id) }}" class="action-btn"><i class="fas fa-play"></i> Watch Now</a>{% endif %}
-            {% if movie.terabox_links %}<h3 class="section-title" style="margin-top: 20px;">TeraBox Links</h3>{% for link_item in movie.terabox_links | sort(attribute='quality', reverse=True) %}<a class="link-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-cloud-download-alt"></i> TeraBox {{ link_item.quality }}</a>{% endfor %}{% endif %}
             {% if movie.links %}<h3 class="section-title" style="margin-top: 20px;">Download Links</h3>{% for link_item in movie.links | sort(attribute='quality', reverse=True) %}<a class="link-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-download"></i> Download {{ link_item.quality }}</a>{% endfor %}{% endif %}
+            {% if movie.terabox_links %}<h3 class="section-title" style="margin-top: 20px;">TeraBox Links</h3>{% for link_item in movie.terabox_links | sort(attribute='quality', reverse=True) %}<a class="link-button" href="{{ link_item.url }}" target="_blank" rel="noopener"><i class="fas fa-cloud-download-alt"></i> TeraBox {{ link_item.quality }}</a>{% endfor %}{% endif %}
             {% if movie.files %}<h3 class="section-title" style="margin-top: 20px;">Get from Telegram</h3>{% for file in movie.files | sort(attribute='quality', reverse=True) %}<a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="link-button telegram"><i class="fa-brands fa-telegram"></i> Get {{ file.quality }}</a>{% endfor %}{% endif %}
         </div>
       {% elif movie.type == 'series' %}<div class="episode-section">
@@ -449,8 +444,8 @@ hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray)
     <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleFields()"><option value="movie">Movie</option><option value="series">TV/Web Series</option></select></div>
     <div id="movie_fields">
         <div class="link-section"><h3>Watch Online</h3><div class="form-group"><label>Watch Link (Embed URL):</label><input type="url" name="watch_link" /></div></div>
-        <div class="link-section"><h3>TeraBox Links</h3><div class="form-group"><label>1080p TeraBox Link:</label><input type="url" name="terabox_link_1080p" /></div><div class="form-group"><label>720p TeraBox Link:</label><input type="url" name="terabox_link_720p" /></div><div class="form-group"><label>480p TeraBox Link:</label><input type="url" name="terabox_link_480p" /></div></div>
         <div class="link-section"><h3>Download Links (Manual)</h3><div class="form-group"><label>1080p Download Link:</label><input type="url" name="download_link_1080p" /></div><div class="form-group"><label>720p Download Link:</label><input type="url" name="download_link_720p" /></div><div class="form-group"><label>480p Download Link:</label><input type="url" name="download_link_480p" /></div></div>
+        <div class="link-section"><h3>TeraBox Links</h3><div class="form-group"><label>1080p TeraBox Link:</label><input type="url" name="terabox_link_1080p" /></div><div class="form-group"><label>720p TeraBox Link:</label><input type="url" name="terabox_link_720p" /></div><div class="form-group"><label>480p TeraBox Link:</label><input type="url" name="terabox_link_480p" /></div></div>
         <div class="link-section"><h3>Telegram Files</h3><p style="color: #aaa; font-size: 0.9em;">(Manual entry for Telegram files)</p><div id="telegram_files_container"></div><button type="button" onclick="addTelegramFileField()" class="add-btn">Add Telegram File</button></div>
     </div>
     <div id="episode_fields" style="display: none;"><h3>Episodes</h3><div id="episodes_container"></div><button type="button" onclick="addEpisodeField()" class="add-btn">Add Episode</button></div>
@@ -509,8 +504,8 @@ button[type="submit"], .add-btn { background: var(--netflix-red); color: white; 
     <div class="form-group"><label>Content Type:</label><select name="content_type" id="content_type" onchange="toggleFields()"><option value="movie" {% if movie.type == 'movie' %}selected{% endif %}>Movie</option><option value="series" {% if movie.type == 'series' %}selected{% endif %}>TV/Web Series</option></select></div>
     <div id="movie_fields">
         <div class="link-section"><h3>Watch Online</h3><div class="form-group"><label>Watch Link (Embed URL):</label><input type="url" name="watch_link" value="{{ movie.watch_link or '' }}" /></div></div>
-        <div class="link-section"><h3>TeraBox Links</h3><div class="form-group"><label>1080p TeraBox:</label><input type="url" name="terabox_link_1080p" value="{% for l in movie.terabox_links %}{% if l.quality == '1080p' %}{{ l.url }}{% endif %}{% endfor %}" /></div><div class="form-group"><label>720p TeraBox:</label><input type="url" name="terabox_link_720p" value="{% for l in movie.terabox_links %}{% if l.quality == '720p' %}{{ l.url }}{% endif %}{% endfor %}" /></div><div class="form-group"><label>480p TeraBox:</label><input type="url" name="terabox_link_480p" value="{% for l in movie.terabox_links %}{% if l.quality == '480p' %}{{ l.url }}{% endif %}{% endfor %}" /></div></div>
         <div class="link-section"><h3>Download Links</h3><div class="form-group"><label>1080p Link:</label><input type="url" name="download_link_1080p" value="{% for l in movie.links %}{% if l.quality == '1080p' %}{{ l.url }}{% endif %}{% endfor %}" /></div><div class="form-group"><label>720p Link:</label><input type="url" name="download_link_720p" value="{% for l in movie.links %}{% if l.quality == '720p' %}{{ l.url }}{% endif %}{% endfor %}" /></div><div class="form-group"><label>480p Link:</label><input type="url" name="download_link_480p" value="{% for l in movie.links %}{% if l.quality == '480p' %}{{ l.url }}{% endif %}{% endfor %}" /></div></div>
+        <div class="link-section"><h3>TeraBox Links</h3><div class="form-group"><label>1080p TeraBox:</label><input type="url" name="terabox_link_1080p" value="{% for l in movie.terabox_links %}{% if l.quality == '1080p' %}{{ l.url }}{% endif %}{% endfor %}" /></div><div class="form-group"><label>720p TeraBox:</label><input type="url" name="terabox_link_720p" value="{% for l in movie.terabox_links %}{% if l.quality == '720p' %}{{ l.url }}{% endif %}{% endfor %}" /></div><div class="form-group"><label>480p TeraBox:</label><input type="url" name="terabox_link_480p" value="{% for l in movie.terabox_links %}{% if l.quality == '480p' %}{{ l.url }}{% endif %}{% endfor %}" /></div></div>
         <div class="link-section"><h3>Telegram Files</h3><div id="telegram_files_container">{% if movie.type == 'movie' and movie.files %}{% for file in movie.files %}<div class="dynamic-item"><div class="form-group"><label>Quality:</label><input type="text" name="telegram_quality[]" value="{{ file.quality }}" required /></div><div class="form-group"><label>Message ID:</label><input type="number" name="telegram_message_id[]" value="{{ file.message_id }}" required /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove</button></div>{% endfor %}{% endif %}</div><button type="button" onclick="addTelegramFileField()" class="add-btn">Add File</button></div>
     </div>
     <div id="episode_fields" style="display: none;"><h3>Episodes</h3><div id="episodes_container">{% if movie.type == 'series' and movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}<div class="dynamic-item"><div class="form-group"><label>Season:</label><input type="number" name="episode_season[]" value="{{ ep.season or 1 }}" required /></div><div class="form-group"><label>Episode:</label><input type="number" name="episode_number[]" value="{{ ep.episode_number }}" required /></div><div class="form-group"><label>Title:</label><input type="text" name="episode_title[]" value="{{ ep.title or '' }}" /></div><hr><p><b>Provide ONE:</b></p><div class="form-group"><label>Telegram Msg ID:</label><input type="number" name="episode_message_id[]" value="{{ ep.message_id or '' }}" /></div><p><b>OR</b> Watch Link:</p><div class="form-group"><label>Watch Link:</label><input type="url" name="episode_watch_link[]" value="{{ ep.watch_link or '' }}" /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove</button></div>{% endfor %}{% endif %}</div><button type="button" onclick="addEpisodeField()" class="add-btn">Add Episode</button></div>
@@ -590,6 +585,21 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         print(f"TMDb API error for '{title}': {e}")
     return None
 
+def extract_links_from_message(text, original_title):
+    watch_link, download_links = None, []
+    # This pattern needs to be adjusted based on your link generator bot's message format
+    watch_match = re.search(r'(?i)(?:watch link|online watch|embed link)[:\s]*(https?://[^\s]+)', text)
+    if watch_match: watch_link = watch_match.group(1)
+    
+    # A more generic link finder
+    urls = re.findall(r'https?://[^\s]+', text)
+    for url in urls:
+        if watch_link and url in watch_link: continue # Avoid adding watch link to downloads
+        quality = "1080p" if "1080p" in url else "720p" if "720p" in url else "480p" if "480p" in url else "HD"
+        download_links.append({"quality": quality, "url": url})
+        
+    return {"watch_link": watch_link, "download_links": download_links, "title": original_title}
+
 def process_movie_list(movie_list):
     for item in movie_list:
         if '_id' in item: item['_id'] = str(item['_id'])
@@ -605,14 +615,7 @@ def home():
         movies_list = list(movies.find({"$text": {"$search": query}}))
         return render_template_string(index_html, movies=process_movie_list(movies_list), query=f'Results for "{query}"', is_full_page_list=True)
     limit = 12
-    context = {
-        "trending_movies": process_movie_list(list(movies.find({"is_trending": True, "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
-        "latest_movies": process_movie_list(list(movies.find({"type": "movie", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
-        "latest_series": process_movie_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
-        "coming_soon_movies": process_movie_list(list(movies.find({"is_coming_soon": True}).sort('_id', -1).limit(limit))),
-        "recently_added": process_movie_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(6))),
-        "is_full_page_list": False, "query": ""
-    }
+    context = {"trending_movies": process_movie_list(list(movies.find({"is_trending": True, "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))), "latest_movies": process_movie_list(list(movies.find({"type": "movie", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))), "latest_series": process_movie_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))), "coming_soon_movies": process_movie_list(list(movies.find({"is_coming_soon": True}).sort('_id', -1).limit(limit))), "recently_added": process_movie_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(6))), "is_full_page_list": False, "query": ""}
     return render_template_string(index_html, **context)
 
 @app.route('/movie/<movie_id>')
@@ -659,8 +662,6 @@ def movies_only(): return render_full_list(list(movies.find({"type": "movie", "i
 def webseries(): return render_full_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1)), "All Web Series")
 @app.route('/coming_soon')
 def coming_soon(): return render_full_list(list(movies.find({"is_coming_soon": True}).sort('_id', -1)), "Coming Soon")
-@app.route('/recently_added')
-def recently_added_all(): return render_full_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1)), "Recently Added")
 
 # ======================================================================
 # --- Admin and Webhook Routes ---
@@ -772,38 +773,62 @@ def delete_feedback(feedback_id):
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
+    
     if 'channel_post' in data:
         post = data['channel_post']
-        if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return jsonify(status='ok')
-        file = post.get('video') or post.get('document')
-        if not (file and file.get('file_name')): return jsonify(status='ok')
-        filename, parsed_info = file.get('file_name'), parse_filename(file.get('file_name'))
-        if not parsed_info or not parsed_info.get('title'): return jsonify(status='ok')
-        quality = (re.search(r'(\d{3,4})p', filename, re.I).group(1) + "p") if re.search(r'(\d{3,4})p', filename, re.I) else "HD"
-        tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-        if not (tmdb_data and tmdb_data.get("tmdb_id")): return jsonify(status='ok')
-        tmdb_id, new_languages = tmdb_data.get("tmdb_id"), parsed_info.get('languages', [])
-        if parsed_info['type'] == 'series':
-            existing = movies.find_one({"tmdb_id": tmdb_id})
-            new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id'], "quality": quality}
-            if existing:
-                movies.update_one({"_id": existing['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
-                update_query = {"$push": {"episodes": new_episode}}
-                if new_languages: update_query["$addToSet"] = {"languages": {"$each": new_languages}}
-                movies.update_one({"_id": existing['_id']}, update_query)
-            else:
-                movies.insert_one({**tmdb_data, "type": "series", "episodes": [new_episode], "languages": new_languages})
-        else:
-            existing = movies.find_one({"tmdb_id": tmdb_id})
-            new_file = {"quality": quality, "message_id": post['message_id']}
-            if existing:
-                movies.update_one({"_id": existing['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
-                update_query = {"$push": {"files": new_file}}
-                if new_languages: update_query["$addToSet"] = {"languages": {"$each": new_languages}}
-                movies.update_one({"_id": existing['_id']}, update_query)
-            else:
-                movies.insert_one({**tmdb_data, "type": "movie", "files": [new_file], "languages": new_languages})
-    elif 'message' in data:
+        chat_id_str = str(post['chat']['id'])
+        
+        # --- লিঙ্ক ক্যাপচার চ্যানেল থেকে লিঙ্ক সংগ্রহ ---
+        if chat_id_str == LINK_CAPTURE_CHANNEL_ID:
+            message_text = post.get('text') or post.get('caption', '')
+            # Assuming the bot's message includes the title to identify the movie
+            # A more robust way is to use a unique ID, but title is a start.
+            # Example message: "Links for 'Movie Title': ..."
+            title_match = re.search(r"for '(.+?)'", message_text, re.IGNORECASE)
+            if title_match:
+                title = title_match.group(1).strip()
+                links = extract_links_from_message(message_text, title)
+                movies.update_one(
+                    {"title": {"$regex": f"^{re.escape(title)}$", "$options": "i"}},
+                    {"$set": {"watch_link": links['watch_link'], "links": links['download_links']}}
+                )
+            return jsonify(status='ok', reason='link_capture_processed')
+
+        # --- অ্যাডমিন চ্যানেল থেকে ফাইল আপলোড হ্যান্ডেল করা ---
+        if chat_id_str == ADMIN_CHANNEL_ID:
+            file = post.get('video') or post.get('document')
+            if not (file and file.get('file_name')): return jsonify(status='ok', reason='no_file')
+            
+            filename = file.get('file_name')
+            parsed_info = parse_filename(filename)
+            if not (parsed_info and parsed_info.get('title')): return jsonify(status='ok', reason='parse_failed')
+            
+            tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
+            if not tmdb_data: return jsonify(status='ok', reason='no_tmdb_data')
+            
+            quality = (re.search(r'(\d{3,4})p', filename, re.I).group(1) + "p") if re.search(r'(\d{3,4})p', filename, re.I) else "HD"
+            
+            # ডাটাবেসে বেসিক তথ্য দিয়ে এন্ট্রি তৈরি/আপডেট করা
+            db_entry = {**tmdb_data, "type": parsed_info['type'], "languages": parsed_info.get('languages', [])}
+            movies.update_one({"tmdb_id": tmdb_data['tmdb_id']}, {"$set": db_entry, "$push": {"files": {"quality": quality, "message_id": post['message_id']}}}, upsert=True)
+            
+            # লিঙ্ক জেনারেটর বটে ফাইল ফরওয়ার্ড করা
+            try:
+                # Add a caption to the forwarded message so the link capture can identify it.
+                caption = f"Links for '{tmdb_data['title']}'"
+                requests.post(f"{TELEGRAM_API_URL}/copyMessage", json={
+                    "chat_id": f"@{LINK_GENERATOR_BOT_USERNAME}",
+                    "from_chat_id": ADMIN_CHANNEL_ID,
+                    "message_id": post['message_id'],
+                    "caption": caption
+                })
+            except Exception as e:
+                print(f"Error forwarding message to bot: {e}")
+
+            return jsonify(status='ok', reason='admin_post_processed')
+
+    # --- /start কমান্ড হ্যান্ডেল করা ---
+    if 'message' in data:
         message, chat_id, text = data['message'], data['message']['chat']['id'], data['message'].get('text', '')
         if text.startswith('/start'):
             parts = text.split()
@@ -824,7 +849,6 @@ def telegram_webhook():
                         res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json={'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': msg_id_to_copy}).json()
                         if res.get('ok'):
                             scheduler.add_job(func=delete_message_after_delay, trigger='date', run_date=datetime.now() + timedelta(minutes=30), args=[chat_id, res['result']['message_id']], id=f'del_{chat_id}_{res["result"]["message_id"]}', replace_existing=True)
-                        else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file."})
                     else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Requested file not found."})
                 except Exception as e: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An error occurred."})
             else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome to our website. Please browse and select content."})
