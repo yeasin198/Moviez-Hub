@@ -3,6 +3,7 @@ import sys
 import re
 import requests
 import time
+import uuid
 from flask import Flask, render_template_string, request, redirect, url_for, Response, jsonify
 from pymongo import MongoClient, TEXT
 from bson.objectid import ObjectId
@@ -11,7 +12,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # ======================================================================
-# --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য (এনভায়রনমেন্ট থেকে লোড হবে) ---
+# --- এনভায়রনমেন্ট ভেরিয়েবল লোড ও পরীক্ষা ---
 # ======================================================================
 MONGO_URI = os.environ.get("MONGO_URI")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -37,6 +38,7 @@ if missing_vars:
 
 # ======================================================================
 # --- অ্যাপ্লিকেশন সেটআপ ---
+# ======================================================================
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 app = Flask(__name__)
 
@@ -56,10 +58,8 @@ try:
     db = client["movie_db"]
     movies, settings, feedback = db["movies"], db["settings"], db["feedback"]
     movies.create_index([("type", 1), ("is_coming_soon", 1), ("_id", -1)])
-    movies.create_index([("is_trending", 1), ("is_coming_soon", 1), ("_id", -1)])
-    movies.create_index("genres")
     movies.create_index("tmdb_id", unique=True, sparse=True)
-    movies.create_index([("title", TEXT)], default_language='none')
+    movies.create_index("correlation_id", sparse=True)
     print("SUCCESS: Successfully connected to MongoDB and ensured indexes!")
 except Exception as e:
     print(f"FATAL: Error connecting to MongoDB or creating indexes: {e}"); sys.exit(1)
@@ -71,6 +71,7 @@ def delete_message_after_delay(chat_id, message_id):
     try: requests.post(f"{TELEGRAM_API_URL}/deleteMessage", json={'chat_id': chat_id, 'message_id': message_id})
     except Exception as e: print(f"Error in delete_message_after_delay: {e}")
 scheduler.start()
+
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
@@ -525,53 +526,48 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 def parse_filename(filename):
     LANGUAGE_MAP = {'hindi': 'Hindi', 'hin': 'Hindi', 'english': 'English', 'eng': 'English', 'bengali': 'Bengali', 'bangla': 'Bangla', 'ben': 'Bengali', 'tamil': 'Tamil', 'tam': 'Tamil', 'telugu': 'Telugu', 'tel': 'Telugu', 'kannada': 'Kannada', 'kan': 'Kannada', 'malayalam': 'Malayalam', 'mal': 'Malayalam', 'dual audio': ['Hindi', 'English'], 'multi audio': ['Multi Audio']}
     cleaned_name = filename.replace('.', ' ').replace('_', ' ').strip()
-    found_languages = []
-    temp_name_for_lang = cleaned_name.lower()
+    found_languages, series_match = [], re.search(r'^(.*?)[\s\._-]*(?:S|Season)[\s\._-]?(\d{1,2})[\s\._-]*(?:E|Episode)[\s\._-]?(\d{1,3})', cleaned_name, re.I)
     for keyword, lang_name in LANGUAGE_MAP.items():
-        if re.search(r'\b' + re.escape(keyword) + r'\b', temp_name_for_lang):
+        if re.search(r'\b' + re.escape(keyword) + r'\b', cleaned_name.lower()):
             if isinstance(lang_name, list): found_languages.extend(lang_name)
             else: found_languages.append(lang_name)
-    languages = sorted(list(set(found_languages))) if found_languages else []
-    series_match = re.search(r'^(.*?)[\s\._-]*(?:S|Season)[\s\._-]?(\d{1,2})[\s\._-]*(?:E|Episode)[\s\._-]?(\d{1,3})', cleaned_name, re.I)
     if series_match:
-        title, season_num, episode_num = series_match.group(1).strip(), int(series_match.group(2)), int(series_match.group(3))
+        title, s, e = series_match.group(1).strip(), int(series_match.group(2)), int(series_match.group(3))
         title = re.sub(r'\[.*?\]|\(.*?\)|(?i)\b(season|s)\s*\d+\s*$', '', title).strip()
-        return {'type': 'series', 'title': title.title(), 'season': season_num, 'episode': episode_num, 'languages': languages}
+        return {'type': 'series', 'title': title.title(), 'season': s, 'episode': e, 'languages': sorted(list(set(found_languages)))}
     year_match = re.search(r'\(?(19[5-9]\d|20\d{2})\)?', cleaned_name)
     year, title = (year_match.group(1), cleaned_name[:year_match.start()].strip()) if year_match else (None, cleaned_name)
-    junk_patterns = [r'\b(1080p|720p|480p|2160p|4k|uhd|web-?dl|webrip|brrip|bluray|dvdrip|hdrip|hdcam|camrip|x264|x265|hevc|avc|aac|ac3|dts|5\.1|7\.1|complete|pack|final|uncut|extended|remastered)\b', r'\[.*?\]', r'\(.*?\)']
-    for lang_key in LANGUAGE_MAP.keys(): title = re.sub(r'(?i)\b' + lang_key + r'\b', '', title)
-    for pattern in junk_patterns: title = re.sub(pattern, '', title, flags=re.I)
+    junk = r'\b(1080p|720p|480p|2160p|4k|uhd|web-?dl|webrip|brrip|bluray|dvdrip|hdrip|hdcam|camrip|x264|x265|hevc|avc|aac|ac3|dts|5\.1|7\.1|complete|pack|final|uncut|extended|remastered)\b|\[.*?\]|\(.*?\)'
+    for lang_key in LANGUAGE_MAP: title = re.sub(r'(?i)\b' + lang_key + r'\b', '', title)
+    for pattern in junk.split('|'): title = re.sub(pattern, '', title, flags=re.I)
     title = re.sub(r'\s+', ' ', title).strip()
-    return {'type': 'movie', 'title': title.title(), 'year': year, 'languages': languages}
+    return {'type': 'movie', 'title': title.title(), 'year': year, 'languages': sorted(list(set(found_languages)))}
 
 def get_tmdb_details_from_api(title, content_type, year=None):
     if not TMDB_API_KEY: return None
-    search_type = "tv" if content_type == "series" else "movie"
     try:
+        search_type = "tv" if content_type == "series" else "movie"
         search_url = f"https://api.themoviedb.org/3/search/{search_type}?api_key={TMDB_API_KEY}&query={requests.utils.quote(title)}"
         if year and search_type == "movie": search_url += f"&primary_release_year={year}"
         search_res = requests.get(search_url, timeout=5).json()
         if not search_res.get("results"): return None
-        tmdb_id = search_res["results"][0].get("id")
+        tmdb_id = search_res["results"][0]["id"]
         detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}"
         res = requests.get(detail_url, timeout=5).json()
         return {"tmdb_id": tmdb_id, "title": res.get("title") or res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "backdrop": f"https://image.tmdb.org/t/p/w1280{res.get('backdrop_path')}" if res.get('backdrop_path') else None, "overview": res.get("overview"), "release_date": res.get("release_date") or res.get("first_air_date"), "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average")}
-    except requests.RequestException as e:
-        print(f"TMDb API error for '{title}': {e}")
-    return None
+    except Exception as e: print(f"TMDb API error for '{title}': {e}"); return None
 
 def extract_links_from_message(text):
     watch_link, download_links = None, []
-    # Adjust these patterns based on your link generator bot's message format
-    watch_match = re.search(r'(https?://[^\s]+(?:embed|watch)[^\s]*)', text, re.IGNORECASE)
-    if watch_match: watch_link = watch_match.group(1)
+    watch_match = re.search(r'https?://[^\s]+(?:embed|watch)[^\s]*', text, re.IGNORECASE)
+    if watch_match: watch_link = watch_match.group(0)
     urls = re.findall(r'https?://[^\s]+', text)
     for url in urls:
         if watch_link and url in watch_link: continue
-        quality = "1080p" if "1080p" in url or "1080" in url else "720p" if "720p" in url or "720" in url else "480p" if "480p" in url or "480" in url else "HD"
+        quality_match = re.search(r'(\d{3,4}p)', url)
+        quality = quality_match.group(1) if quality_match else "HD"
         download_links.append({"quality": quality, "url": url})
-    return {"watch_link": watch_link, "download_links": download_links}
+    return {"watch_link": watch_link, "links": download_links}
     
 def process_movie_list(movie_list):
     for item in movie_list:
@@ -746,78 +742,79 @@ def delete_feedback(feedback_id):
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
-    if not data or 'channel_post' not in data:
-        return jsonify(status='ok', reason='not_a_channel_post')
+    if not data: return jsonify(status='ok', reason='no_data')
 
-    post = data['channel_post']
-    chat_id_str = str(post['chat']['id'])
+    if 'channel_post' in data:
+        post = data['channel_post']
+        chat_id_str = str(post['chat']['id'])
+        print(f"Received post from chat ID: {chat_id_str}")
 
-    # --- লিঙ্ক ক্যাপচার চ্যানেল থেকে লিঙ্ক সংগ্রহ ---
-    if chat_id_str == LINK_CAPTURE_CHANNEL_ID:
-        message_text = post.get('text') or post.get('caption', '')
-        title_match = re.search(r"Title:\s*(.+)", message_text)
-        if title_match:
-            title = title_match.group(1).strip()
-            links = extract_links_from_message(message_text)
-            update_result = movies.update_one(
-                {"title": {"$regex": f"^{re.escape(title)}$", "$options": "i"}},
-                {"$set": {"watch_link": links['watch_link'], "links": links['download_links']}}
+        if chat_id_str == LINK_CAPTURE_CHANNEL_ID:
+            print("Processing post from LINK_CAPTURE_CHANNEL...")
+            message_text = post.get('text') or post.get('caption', '')
+            corr_id_match = re.search(r'corr_id_([a-f0-9\-]+)', message_text)
+            if corr_id_match:
+                correlation_id = corr_id_match.group(0)
+                print(f"Found correlation ID: {correlation_id}")
+                links = extract_links_from_message(message_text)
+                update_result = movies.update_one(
+                    {"correlation_id": correlation_id},
+                    {"$set": {"watch_link": links['watch_link'], "links": links['links']}, "$unset": {"correlation_id": ""}}
+                )
+                if update_result.modified_count > 0: print(f"SUCCESS: Updated links for {correlation_id}")
+                else: print(f"WARNING: Could not find movie with correlation ID {correlation_id}")
+            return jsonify(status='ok', reason='link_capture_processed')
+
+        elif chat_id_str == ADMIN_CHANNEL_ID:
+            print("Processing post from ADMIN_CHANNEL...")
+            file_data = post.get('video') or post.get('document')
+            if not (file_data and file_data.get('file_name')): return jsonify(status='ok', reason='no_file_in_post')
+            
+            filename = file_data.get('file_name')
+            parsed_info = parse_filename(filename)
+            if not (parsed_info and parsed_info.get('title')): return jsonify(status='ok', reason='parse_failed')
+
+            tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
+            if not tmdb_data: return jsonify(status='ok', reason='no_tmdb_data')
+
+            correlation_id = f"corr_id_{uuid.uuid4()}"
+            quality = (re.search(r'(\d{3,4})p', filename, re.I).group(1) + "p") if re.search(r'(\d{3,4})p', filename, re.I) else "HD"
+            
+            db_entry = {**tmdb_data, "type": parsed_info['type'], "languages": parsed_info.get('languages', []), "correlation_id": correlation_id}
+            movies.update_one(
+                {"tmdb_id": tmdb_data['tmdb_id']},
+                {"$set": db_entry, "$push": {"files": {"quality": quality, "message_id": post['message_id']}}},
+                upsert=True
             )
-            if update_result.modified_count > 0: print(f"Successfully updated links for: {title}")
-            else: print(f"Could not find movie to update links for: {title}")
-        return jsonify(status='ok', reason='link_capture_processed')
+            print(f"Initial entry created for '{tmdb_data['title']}' with corr_id: {correlation_id}")
 
-    # --- অ্যাডমিন চ্যানেল থেকে ফাইল আপলোড হ্যান্ডেল করা ---
-    if chat_id_str == ADMIN_CHANNEL_ID:
-        file_data = post.get('video') or post.get('document')
-        if not (file_data and file_data.get('file_name')): return jsonify(status='ok', reason='no_file_in_post')
-        
-        filename = file_data.get('file_name')
-        parsed_info = parse_filename(filename)
-        if not (parsed_info and parsed_info.get('title')): return jsonify(status='ok', reason='parse_failed')
+            try:
+                file_id = file_data['file_id']
+                file_path_res = requests.get(f"{TELEGRAM_API_URL}/getFile", params={'file_id': file_id}).json()
+                if not file_path_res.get('ok'):
+                    print(f"ERROR: Failed to get file path: {file_path_res}"); return jsonify(status='ok')
+                
+                telegram_file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path_res['result']['file_path']}"
+                
+                with requests.get(telegram_file_url, stream=True) as r:
+                    r.raise_for_status()
+                    temp_file_path = f"/tmp/{filename.replace('/', '_')}"
+                    with open(temp_file_path, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
+                
+                with open(temp_file_path, 'rb') as f_to_upload:
+                    files = {'document': (filename, f_to_upload)}
+                    caption_text = f"Please generate links. ID: {correlation_id}"
+                    payload = {'chat_id': f"@{LINK_GENERATOR_BOT_USERNAME}", 'caption': caption_text}
+                    res = requests.post(f"{TELEGRAM_API_URL}/sendDocument", data=payload, files=files, timeout=60)
+                    if res.json().get('ok'): print(f"SUCCESS: Sent file to @{LINK_GENERATOR_BOT_USERNAME}")
+                    else: print(f"ERROR: Failed to send file to bot: {res.text}")
+                os.remove(temp_file_path)
 
-        tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-        if not tmdb_data: return jsonify(status='ok', reason='no_tmdb_data')
+            except Exception as e: print(f"CRITICAL ERROR in file handling: {e}")
+            return jsonify(status='ok', reason='admin_post_processed')
 
-        quality = (re.search(r'(\d{3,4})p', filename, re.I).group(1) + "p") if re.search(r'(\d{3,4})p', filename, re.I) else "HD"
-        db_entry = {**tmdb_data, "type": parsed_info['type'], "languages": parsed_info.get('languages', [])}
-        movies.update_one({"tmdb_id": tmdb_data['tmdb_id']}, {"$set": db_entry, "$push": {"files": {"quality": quality, "message_id": post['message_id']}}}, upsert=True)
-        print(f"Initial entry created/updated for: {tmdb_data['title']}")
-
-        try:
-            file_id = file_data['file_id']
-            file_path_res = requests.get(f"{TELEGRAM_API_URL}/getFile", params={'file_id': file_id}).json()
-            if not file_path_res.get('ok'):
-                print(f"Failed to get file path: {file_path_res}")
-                return jsonify(status='ok')
-            
-            file_path = file_path_res['result']['file_path']
-            telegram_file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-            
-            with requests.get(telegram_file_url, stream=True) as r:
-                r.raise_for_status()
-                temp_file_path = f"/tmp/{filename.replace('/', '_')}"
-                with open(temp_file_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
-            print(f"File downloaded to: {temp_file_path}")
-
-            with open(temp_file_path, 'rb') as f_to_upload:
-                upload_url = f"{TELEGRAM_API_URL}/sendDocument"
-                files = {'document': (filename, f_to_upload)}
-                caption_text = f"Title: {tmdb_data['title']}"
-                payload = {'chat_id': f"@{LINK_GENERATOR_BOT_USERNAME}", 'caption': caption_text}
-                res = requests.post(upload_url, data=payload, files=files, timeout=60)
-                if res.json().get('ok'): print(f"Successfully sent file to @{LINK_GENERATOR_BOT_USERNAME}")
-                else: print(f"Failed to send file to bot: {res.text}")
-
-            os.remove(temp_file_path)
-            print(f"Temporary file removed: {temp_file_path}")
-
-        except Exception as e: print(f"An error occurred in the file download/upload process: {e}")
-        return jsonify(status='ok', reason='admin_post_processed')
-
-    # --- /start কমান্ড হ্যান্ডেল করা ---
-    if 'message' in data:
+    elif 'message' in data:
         message, chat_id, text = data['message'], data['message']['chat']['id'], data['message'].get('text', '')
         if text.startswith('/start'):
             parts = text.split()
@@ -841,7 +838,9 @@ def telegram_webhook():
                     else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Requested file not found."})
                 except Exception as e: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An error occurred."})
             else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome to our website. Please browse and select content."})
-    return jsonify(status='ok')
+        return jsonify(status='ok')
+        
+    return jsonify(status='ok', reason='unhandled_update')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
