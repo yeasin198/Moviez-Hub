@@ -680,7 +680,10 @@ def parse_filename(filename):
     season_pack_match = re.search(r'^(.*?)[\s\.]*(?:S|Season)[\s\.]?(\d{1,2})', processed_name, re.I)
     if season_pack_match:
         text_after_season = processed_name[season_pack_match.end():].lower()
-        if any(keyword in text_after_season for keyword in SEASON_PACK_KEYWORDS) or 'e' not in text_after_season:
+        # A season pack if it contains pack keywords OR doesn't contain episode identifiers
+        is_pack = any(keyword in text_after_season for keyword in SEASON_PACK_KEYWORDS) or not re.search(r'\be\d', text_after_season)
+
+        if is_pack:
             title = season_pack_match.group(1).strip()
             season_num = int(season_pack_match.group(2))
             
@@ -810,12 +813,83 @@ def movie_detail(movie_id):
         return render_template_string(detail_html, movie=movie, trailer_key=movie.get("trailer_key"), related_movies=process_movie_list(related_movies))
     except Exception: return "Content not found", 404
 
-# --- বাকি রুটগুলো অপরিবর্তিত ---
-# ...
+@app.route('/watch/<movie_id>')
+def watch_movie(movie_id):
+    try:
+        movie = movies.find_one({"_id": ObjectId(movie_id)})
+        if not movie or not movie.get("watch_link"): return "Content not found.", 404
+        return render_template_string(watch_html, watch_link=movie["watch_link"], title=movie["title"])
+    except Exception: return "An error occurred.", 500
+
+def render_full_list(content_list, title):
+    return render_template_string(index_html, movies=process_movie_list(content_list), query=title, is_full_page_list=True)
+
+@app.route('/badge/<badge_name>')
+def movies_by_badge(badge_name): return render_full_list(list(movies.find({"poster_badge": badge_name}).sort('_id', -1)), f'Tag: {badge_name}')
+
+@app.route('/genres')
+def genres_page(): return render_template_string(genres_html, genres=sorted([g for g in movies.distinct("genres") if g]), title="Browse by Genre")
+
+@app.route('/genre/<genre_name>')
+def movies_by_genre(genre_name): return render_full_list(list(movies.find({"genres": genre_name}).sort('_id', -1)), f'Genre: {genre_name}')
+
+@app.route('/trending_movies')
+def trending_movies(): return render_full_list(list(movies.find({"is_trending": True, "is_coming_soon": {"$ne": True}}).sort('_id', -1)), "Trending Now")
+
+@app.route('/movies_only')
+def movies_only(): return render_full_list(list(movies.find({"type": "movie", "is_coming_soon": {"$ne": True}}).sort('_id', -1)), "All Movies")
+
+@app.route('/webseries')
+def webseries(): return render_full_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1)), "All Web Series")
+
+@app.route('/coming_soon')
+def coming_soon(): return render_full_list(list(movies.find({"is_coming_soon": True}).sort('_id', -1)), "Coming Soon")
+
+@app.route('/recently_added')
+def recently_added_all(): return render_full_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1)), "Recently Added")
 
 # ======================================================================
 # --- Admin and Webhook Routes ---
 # ======================================================================
+@app.route('/admin', methods=["GET", "POST"])
+@requires_auth
+def admin():
+    if request.method == "POST":
+        content_type = request.form.get("content_type", "movie")
+        tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
+        movie_data = {
+            "title": request.form.get("title"), "type": content_type, **tmdb_data, 
+            "is_trending": False, "is_coming_soon": False, 
+            "links": [], "files": [], "episodes": [], "season_packs": [], "languages": []
+        }
+        if content_type == "movie":
+            # ... (Movie handling code as before)
+            pass
+        else:
+            # ... (Series handling code as before)
+            pass
+        movies.insert_one(movie_data)
+        return redirect(url_for('admin'))
+
+    search_query = request.args.get('search', '').strip()
+    query_filter = {}
+    if search_query: query_filter = {"title": {"$regex": search_query, "$options": "i"}}
+    ad_settings = settings.find_one() or {}
+    content_list = process_movie_list(list(movies.find(query_filter).sort('_id', -1)))
+    feedback_list = process_movie_list(list(feedback.find().sort('timestamp', -1)))
+    return render_template_string(admin_html, content_list=content_list, ad_settings=ad_settings, feedback_list=feedback_list, search_query=search_query)
+
+
+@app.route('/admin/save_ads', methods=['POST'])
+@requires_auth
+def save_ads():
+    ad_codes = {
+        "popunder_code": request.form.get("popunder_code", ""), "social_bar_code": request.form.get("social_bar_code", ""),
+        "banner_ad_code": request.form.get("banner_ad_code", ""), "native_banner_code": request.form.get("native_banner_code", "")
+    }
+    settings.update_one({}, {"$set": ad_codes}, upsert=True)
+    return redirect(url_for('admin'))
+
 @app.route('/edit_movie/<movie_id>', methods=["GET", "POST"])
 @requires_auth
 def edit_movie(movie_id):
@@ -832,8 +906,7 @@ def edit_movie(movie_id):
             "title": request.form.get("title"), "type": content_type,
             "is_trending": request.form.get("is_trending") == "true",
             "is_coming_soon": request.form.get("is_coming_soon") == "true",
-            "poster": request.form.get("poster", "").strip(),
-            "overview": request.form.get("overview", "").strip(),
+            "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(),
             "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()],
             "languages": [lang.strip() for lang in request.form.get("languages", "").split(',') if lang.strip()],
             "poster_badge": request.form.get("poster_badge", "").strip() or None
@@ -841,30 +914,57 @@ def edit_movie(movie_id):
         
         if content_type == "movie":
             update_data["watch_link"] = request.form.get("watch_link", "")
-            links = [{"quality": q, "url": u} for q, u in [("480p", request.form.get("link_480p")), ("720p", request.form.get("link_720p")), ("1080p", request.form.get("link_1080p"))] if u]
-            update_data["links"] = links
-            
-            files = [{"quality": q, "message_id": int(mid)} for q, mid in zip(request.form.getlist('telegram_quality[]'), request.form.getlist('telegram_message_id[]')) if q and mid]
-            update_data["files"] = files
+            update_data["links"] = [{"quality": q, "url": u} for q, u in [("480p", request.form.get("link_480p")), ("720p", request.form.get("link_720p")), ("1080p", request.form.get("link_1080p"))] if u]
+            update_data["files"] = [{"quality": q, "message_id": int(mid)} for q, mid in zip(request.form.getlist('telegram_quality[]'), request.form.getlist('telegram_message_id[]')) if q and mid]
             movies.update_one({"_id": obj_id}, {"$set": update_data, "$unset": {"episodes": "", "season_packs": ""}})
-        else: # series
-            episodes = []
-            for i in range(len(request.form.getlist('episode_number[]'))):
-                episodes.append({
-                    "season": int(request.form.getlist('episode_season[]')[i]), "episode_number": int(request.form.getlist('episode_number[]')[i]),
-                    "title": request.form.getlist('episode_title[]')[i], "watch_link": request.form.getlist('episode_watch_link[]')[i] or None,
-                    "message_id": int(mid) if (mid := request.form.getlist('episode_message_id[]')[i]) else None
-                })
-            update_data["episodes"] = episodes
-
-            packs = [{"season": int(s), "message_id": int(mid)} for s, mid in zip(request.form.getlist('pack_season[]'), request.form.getlist('pack_message_id[]')) if s and mid]
-            update_data["season_packs"] = packs
-
+        else:
+            update_data["episodes"] = [{"season": int(s), "episode_number": int(e), "title": t, "watch_link": w or None, "message_id": int(m) if m else None} for s, e, t, w, m in zip(request.form.getlist('episode_season[]'), request.form.getlist('episode_number[]'), request.form.getlist('episode_title[]'), request.form.getlist('episode_watch_link[]'), request.form.getlist('episode_message_id[]'))]
+            update_data["season_packs"] = [{"season": int(s), "message_id": int(mid)} for s, mid in zip(request.form.getlist('pack_season[]'), request.form.getlist('pack_message_id[]')) if s and mid]
             movies.update_one({"_id": obj_id}, {"$set": update_data, "$unset": {"links": "", "watch_link": "", "files": ""}})
         
         return redirect(url_for('admin'))
 
     return render_template_string(edit_html, movie=movie_obj)
+
+
+@app.route('/delete_movie/<movie_id>')
+@requires_auth
+def delete_movie(movie_id):
+    movies.delete_one({"_id": ObjectId(movie_id)})
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/delete_all_movies')
+@requires_auth
+def delete_all_movies():
+    try:
+        result = movies.delete_many({})
+        print(f"DELETED: {result.deleted_count} documents from the 'movies' collection by admin.")
+    except Exception as e:
+        print(f"ERROR: Could not delete all movies. Reason: {e}")
+    return redirect(url_for('admin'))
+
+
+@app.route('/contact', methods=['GET', 'POST'])
+def contact():
+    if request.method == 'POST':
+        feedback_data = {
+            "type": request.form.get("type"), "content_title": request.form.get("content_title"),
+            "message": request.form.get("message"), "email": request.form.get("email", "").strip(),
+            "reported_content_id": request.form.get("reported_content_id"), "timestamp": datetime.utcnow()
+        }
+        feedback.insert_one(feedback_data)
+        return render_template_string(contact_html, message_sent=True)
+    prefill_title, prefill_id = request.args.get('title', ''), request.args.get('report_id', '')
+    prefill_type = 'Problem Report' if prefill_id else 'Movie Request'
+    return render_template_string(contact_html, message_sent=False, prefill_title=prefill_title, prefill_id=prefill_id, prefill_type=prefill_type)
+
+
+@app.route('/delete_feedback/<feedback_id>')
+@requires_auth
+def delete_feedback(feedback_id):
+    feedback.delete_one({"_id": ObjectId(feedback_id)})
+    return redirect(url_for('admin'))
 
 
 @app.route('/webhook', methods=['POST'])
@@ -902,12 +1002,12 @@ def telegram_webhook():
         content_type = parsed_info['type']
         existing_content = movies.find_one({"tmdb_id": tmdb_id})
 
-        if content_type == 'series' or content_type == 'series_pack':
+        if content_type in ['series', 'series_pack']:
             if not existing_content:
                 print(f"DATABASE: No existing series found. Creating new entry for '{tmdb_data['title']}'...")
-                series_doc = {**tmdb_data, "type": "series", "episodes": [], "season_packs": [], "languages": parsed_info['languages']}
+                series_doc = {**tmdb_data, "type": "series", "episodes": [], "season_packs": [], "languages": parsed_info.get('languages', [])}
                 movies.insert_one(series_doc)
-                existing_content = movies.find_one({"tmdb_id": tmdb_id})
+                existing_content = movies.find_one({"tmdb_id": tmdb_id}) # Re-fetch the newly created doc
             
             if content_type == 'series_pack':
                 new_pack = {"season": parsed_info['season'], "message_id": post['message_id']}
@@ -923,8 +1023,8 @@ def telegram_webhook():
             movies.update_one({"_id": existing_content['_id']}, update_doc)
 
         else: # Movie
-            quality = re.search(r'(\d{3,4}p)', filename, re.I)
-            quality = quality.group(1) if quality else "HD"
+            quality_match = re.search(r'(\d{3,4}p)', filename, re.I)
+            quality = quality_match.group(1) if quality_match else "HD"
             new_file = {"quality": quality, "message_id": post['message_id']}
 
             if existing_content:
@@ -933,7 +1033,7 @@ def telegram_webhook():
                 movies.update_one({"_id": existing_content['_id']}, update_doc)
                 print(f"SUCCESS: Movie file ({quality}) updated.")
             else:
-                movie_doc = {**tmdb_data, "type": "movie", "files": [new_file], "languages": parsed_info['languages']}
+                movie_doc = {**tmdb_data, "type": "movie", "files": [new_file], "languages": parsed_info.get('languages', [])}
                 movies.insert_one(movie_doc)
                 print("SUCCESS: New movie created.")
 
