@@ -133,7 +133,17 @@ index_html = """
   .poster-wrapper { position: relative; width: 100%; border-radius: 6px; overflow: hidden; background-color: #222; display: flex; flex-direction: column; }
   .movie-poster-container { position: relative; overflow: hidden; width:100%; flex-grow:1; aspect-ratio: 2 / 3; }
   .movie-poster { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.4s ease; }
-  .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 4px 8px; font-size: 0.7rem; font-weight: 700; border-radius: 4px; z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+  @keyframes rgb-glow {
+    0%, 100% { color: #ff5555; text-shadow: 0 0 5px #ff5555, 0 0 10px #ff5555; }
+    33% { color: #55ff55; text-shadow: 0 0 5px #55ff55, 0 0 10px #55ff55; }
+    66% { color: #55aaff; text-shadow: 0 0 5px #55aaff, 0 0 10px #55aaff; }
+  }
+  .poster-badge {
+    position: absolute; top: 18px; left: -35px; width: 140px; background: rgba(20, 20, 20, 0.8);
+    backdrop-filter: blur(5px); transform: rotate(-45deg); text-align: center; z-index: 5;
+    font-size: 0.75rem; font-weight: 700; padding: 4px 0; border: 1px solid rgba(255, 255, 255, 0.2);
+    animation: rgb-glow 3s linear infinite;
+  }
   .rating-badge { position: absolute; top: 10px; right: 10px; background-color: rgba(0, 0, 0, 0.8); color: white; padding: 5px 10px; font-size: 0.8rem; font-weight: 700; border-radius: 20px; z-index: 3; display: flex; align-items: center; gap: 5px; backdrop-filter: blur(5px); }
   .rating-badge .fa-star { color: #f5c518; }
   .card-info-static { padding: 10px 8px; background-color: #1a1a1a; text-align: left; width: 100%; flex-shrink: 0; }
@@ -294,7 +304,17 @@ detail_html = """
   .poster-wrapper { position: relative; width: 100%; border-radius: 6px; overflow: hidden; background-color: #222; display: flex; flex-direction: column; }
   .movie-poster-container { position: relative; overflow: hidden; width:100%; flex-grow:1; aspect-ratio: 2 / 3; }
   .movie-poster { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.4s ease; }
-  .poster-badge { position: absolute; top: 10px; left: 10px; background-color: var(--netflix-red); color: white; padding: 4px 8px; font-size: 0.7rem; font-weight: 700; border-radius: 4px; z-index: 3; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+  @keyframes rgb-glow {
+    0%, 100% { color: #ff5555; text-shadow: 0 0 5px #ff5555, 0 0 10px #ff5555; }
+    33% { color: #55ff55; text-shadow: 0 0 5px #55ff55, 0 0 10px #55ff55; }
+    66% { color: #55aaff; text-shadow: 0 0 5px #55aaff, 0 0 10px #55aaff; }
+  }
+  .poster-badge {
+    position: absolute; top: 18px; left: -35px; width: 140px; background: rgba(20, 20, 20, 0.8);
+    backdrop-filter: blur(5px); transform: rotate(-45deg); text-align: center; z-index: 5;
+    font-size: 0.75rem; font-weight: 700; padding: 4px 0; border: 1px solid rgba(255, 255, 255, 0.2);
+    animation: rgb-glow 3s linear infinite;
+  }
   .rating-badge { position: absolute; top: 10px; right: 10px; background-color: rgba(0, 0, 0, 0.8); color: white; padding: 5px 10px; font-size: 0.8rem; font-weight: 700; border-radius: 20px; z-index: 3; display: flex; align-items: center; gap: 5px; backdrop-filter: blur(5px); }
   .rating-badge .fa-star { color: #f5c518; }
   .card-info-static { padding: 10px 8px; background-color: #1a1a1a; text-align: left; width: 100%; flex-shrink: 0; }
@@ -402,7 +422,6 @@ watch_html = """
 </body></html>
 """
 
-# NEW CODE START: admin_html টেমপ্লেটে নতুন Danger Zone যোগ করা হয়েছে
 admin_html = """
 <!DOCTYPE html>
 <html><head><title>Admin Panel - MovieZone</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
@@ -480,7 +499,6 @@ hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray)
   </script>
 </body></html>
 """
-# NEW CODE END
 
 edit_html = """
 <!DOCTYPE html>
@@ -808,7 +826,6 @@ def delete_movie(movie_id):
     movies.delete_one({"_id": ObjectId(movie_id)})
     return redirect(url_for('admin'))
 
-# NEW CODE START: সকল মুভি ডিলিট করার জন্য নতুন রুট
 @app.route('/admin/delete_all_movies')
 @requires_auth
 def delete_all_movies():
@@ -818,7 +835,6 @@ def delete_all_movies():
     except Exception as e:
         print(f"ERROR: Could not delete all movies. Reason: {e}")
     return redirect(url_for('admin'))
-# NEW CODE END
 
 @app.route('/contact', methods=['GET', 'POST'])
 def contact():
@@ -844,36 +860,58 @@ def telegram_webhook():
         if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return jsonify(status='ok', reason='not_admin_channel')
         file = post.get('video') or post.get('document')
         if not (file and file.get('file_name')): return jsonify(status='ok', reason='no_file_in_post')
+        
         filename = file.get('file_name')
         parsed_info = parse_filename(filename)
+        
         if not parsed_info or not parsed_info.get('title'): return jsonify(status='ok', reason='parsing_failed')
+        
+        # --- স্বয়ংক্রিয়ভাবে ফাইলের নাম থেকে পোস্টার ব্যাজ শনাক্ত করা ---
+        poster_badge = None
+        quality_tags = ['HDRip', 'WEB-DL', 'WEBRip', 'BluRay', 'HDTS', 'HDCAM', 'CAM', 'TS', 'HD']
+        badge_regex = r'\b(' + '|'.join(quality_tags) + r')\b'
+        badge_match = re.search(badge_regex, filename, re.IGNORECASE)
+        if badge_match:
+            poster_badge = badge_match.group(1).upper()
+
         quality_match = re.search(r'(\d{3,4})p', filename, re.IGNORECASE)
         quality = quality_match.group(1) + "p" if quality_match else "HD"
+        
         tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
         if not tmdb_data or not tmdb_data.get("tmdb_id"): return jsonify(status='ok', reason='no_tmdb_data_or_id')
+        
         tmdb_id = tmdb_data.get("tmdb_id")
         new_languages = parsed_info.get('languages', [])
+        
+        update_doc = {"$set": {}}
+        if poster_badge:
+            update_doc["$set"]["poster_badge"] = poster_badge
+        
         if parsed_info['type'] == 'series':
             existing_series = movies.find_one({"tmdb_id": tmdb_id})
             new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id'], "quality": quality}
+            
             if existing_series:
                 movies.update_one({"_id": existing_series['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
-                update_query = {"$push": {"episodes": new_episode}}
-                if new_languages: update_query["$addToSet"] = {"languages": {"$each": new_languages}}
-                movies.update_one({"_id": existing_series['_id']}, update_query)
+                update_doc["$push"] = {"episodes": new_episode}
+                if new_languages: update_doc["$addToSet"] = {"languages": {"$each": new_languages}}
+                movies.update_one({"_id": existing_series['_id']}, update_doc)
             else:
                 series_doc = { **tmdb_data, "type": "series", "is_trending": False, "is_coming_soon": False, "episodes": [new_episode], "languages": new_languages }
+                if poster_badge: series_doc["poster_badge"] = poster_badge
                 movies.insert_one(series_doc)
-        else:
+        else: # Movie
             existing_movie = movies.find_one({"tmdb_id": tmdb_id})
             new_file = {"quality": quality, "message_id": post['message_id']}
+            
             if existing_movie:
                 movies.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
-                update_query = {"$push": {"files": new_file}}
-                if new_languages: update_query["$addToSet"] = {"languages": {"$each": new_languages}}
-                movies.update_one({"_id": existing_movie['_id']}, update_query)
+                update_doc["$push"] = {"files": new_file}
+                if new_languages: update_doc["$addToSet"] = {"languages": {"$each": new_languages}}
+                movies.update_one({"_id": existing_movie['_id']}, update_doc)
             else:
                 movie_doc = { **tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False, "files": [new_file], "languages": new_languages }
+                if poster_badge: movie_doc["poster_badge"] = poster_badge
                 movies.insert_one(movie_doc)
 
     elif 'message' in data:
