@@ -20,12 +20,9 @@ ADMIN_CHANNEL_ID = os.environ.get("ADMIN_CHANNEL_ID")
 BOT_USERNAME = os.environ.get("BOT_USERNAME")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
-# --- নতুন ভেরিয়েবল ---
 LINK_GENERATOR_BOT_USERNAME = os.environ.get("LINK_GENERATOR_BOT_USERNAME")
 LINK_CAPTURE_CHANNEL_ID = os.environ.get("LINK_CAPTURE_CHANNEL_ID")
 
-
-# --- প্রয়োজনীয় ভেরিয়েবলগুলো সেট করা হয়েছে কিনা তা পরীক্ষা করা ---
 required_vars = {
     "MONGO_URI": MONGO_URI, "BOT_TOKEN": BOT_TOKEN, "TMDB_API_KEY": TMDB_API_KEY,
     "ADMIN_CHANNEL_ID": ADMIN_CHANNEL_ID, "BOT_USERNAME": BOT_USERNAME,
@@ -33,68 +30,47 @@ required_vars = {
     "LINK_GENERATOR_BOT_USERNAME": LINK_GENERATOR_BOT_USERNAME,
     "LINK_CAPTURE_CHANNEL_ID": LINK_CAPTURE_CHANNEL_ID
 }
-
 missing_vars = [name for name, value in required_vars.items() if not value]
 if missing_vars:
     print(f"FATAL: Missing required environment variables: {', '.join(missing_vars)}")
     sys.exit(1)
 
 # ======================================================================
-
 # --- অ্যাপ্লিকেশন সেটআপ ---
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 app = Flask(__name__)
 
-# --- অ্যাডমিন অথেন্টিকেশন ফাংশন ---
-def check_auth(username, password):
-    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
-
-def authenticate():
-    return Response('Could not verify your access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
-
+# --- অ্যাডমিন, ডাটাবেস, কনটেক্সট এবং সিডিউলার ---
+def check_auth(username, password): return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
+def authenticate(): return Response('Could not verify your access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
 def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
-            return authenticate()
+        if not auth or not check_auth(auth.username, auth.password): return authenticate()
         return f(*args, **kwargs)
     return decorated
 
-# --- ডাটাবেস কানেকশন এবং ইনডেক্স তৈরি ---
 try:
     client = MongoClient(MONGO_URI)
     db = client["movie_db"]
-    movies = db["movies"]
-    settings = db["settings"]
-    feedback = db["feedback"]
-    
+    movies, settings, feedback = db["movies"], db["settings"], db["feedback"]
     movies.create_index([("type", 1), ("is_coming_soon", 1), ("_id", -1)])
     movies.create_index([("is_trending", 1), ("is_coming_soon", 1), ("_id", -1)])
     movies.create_index("genres")
     movies.create_index("tmdb_id", unique=True, sparse=True)
     movies.create_index([("title", TEXT)], default_language='none')
-    
     print("SUCCESS: Successfully connected to MongoDB and ensured indexes!")
 except Exception as e:
-    print(f"FATAL: Error connecting to MongoDB or creating indexes: {e}. Exiting.")
-    sys.exit(1)
+    print(f"FATAL: Error connecting to MongoDB or creating indexes: {e}"); sys.exit(1)
 
-# --- Context Processor ---
 @app.context_processor
-def inject_vars():
-    ad_codes = settings.find_one()
-    return dict(ad_settings=(ad_codes or {}), bot_username=BOT_USERNAME)
-
-# --- অটো-ডিলিট সিডিউলার ---
+def inject_vars(): return dict(ad_settings=(settings.find_one() or {}), bot_username=BOT_USERNAME)
 scheduler = BackgroundScheduler(daemon=True)
 def delete_message_after_delay(chat_id, message_id):
-    try:
-        requests.post(f"{TELEGRAM_API_URL}/deleteMessage", json={'chat_id': chat_id, 'message_id': message_id})
-    except Exception as e:
-        print(f"Error in delete_message_after_delay: {e}")
+    try: requests.post(f"{TELEGRAM_API_URL}/deleteMessage", json={'chat_id': chat_id, 'message_id': message_id})
+    except Exception as e: print(f"Error in delete_message_after_delay: {e}")
 scheduler.start()
-
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
@@ -585,21 +561,18 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         print(f"TMDb API error for '{title}': {e}")
     return None
 
-def extract_links_from_message(text, original_title):
+def extract_links_from_message(text):
     watch_link, download_links = None, []
-    # This pattern needs to be adjusted based on your link generator bot's message format
-    watch_match = re.search(r'(?i)(?:watch link|online watch|embed link)[:\s]*(https?://[^\s]+)', text)
+    # Adjust these patterns based on your link generator bot's message format
+    watch_match = re.search(r'(https?://[^\s]+(?:embed|watch)[^\s]*)', text, re.IGNORECASE)
     if watch_match: watch_link = watch_match.group(1)
-    
-    # A more generic link finder
     urls = re.findall(r'https?://[^\s]+', text)
     for url in urls:
-        if watch_link and url in watch_link: continue # Avoid adding watch link to downloads
-        quality = "1080p" if "1080p" in url else "720p" if "720p" in url else "480p" if "480p" in url else "HD"
+        if watch_link and url in watch_link: continue
+        quality = "1080p" if "1080p" in url or "1080" in url else "720p" if "720p" in url or "720" in url else "480p" if "480p" in url or "480" in url else "HD"
         download_links.append({"quality": quality, "url": url})
-        
-    return {"watch_link": watch_link, "download_links": download_links, "title": original_title}
-
+    return {"watch_link": watch_link, "download_links": download_links}
+    
 def process_movie_list(movie_list):
     for item in movie_list:
         if '_id' in item: item['_id'] = str(item['_id'])
@@ -773,59 +746,75 @@ def delete_feedback(feedback_id):
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
-    
-    if 'channel_post' in data:
-        post = data['channel_post']
-        chat_id_str = str(post['chat']['id'])
+    if not data or 'channel_post' not in data:
+        return jsonify(status='ok', reason='not_a_channel_post')
+
+    post = data['channel_post']
+    chat_id_str = str(post['chat']['id'])
+
+    # --- লিঙ্ক ক্যাপচার চ্যানেল থেকে লিঙ্ক সংগ্রহ ---
+    if chat_id_str == LINK_CAPTURE_CHANNEL_ID:
+        message_text = post.get('text') or post.get('caption', '')
+        title_match = re.search(r"Title:\s*(.+)", message_text)
+        if title_match:
+            title = title_match.group(1).strip()
+            links = extract_links_from_message(message_text)
+            update_result = movies.update_one(
+                {"title": {"$regex": f"^{re.escape(title)}$", "$options": "i"}},
+                {"$set": {"watch_link": links['watch_link'], "links": links['download_links']}}
+            )
+            if update_result.modified_count > 0: print(f"Successfully updated links for: {title}")
+            else: print(f"Could not find movie to update links for: {title}")
+        return jsonify(status='ok', reason='link_capture_processed')
+
+    # --- অ্যাডমিন চ্যানেল থেকে ফাইল আপলোড হ্যান্ডেল করা ---
+    if chat_id_str == ADMIN_CHANNEL_ID:
+        file_data = post.get('video') or post.get('document')
+        if not (file_data and file_data.get('file_name')): return jsonify(status='ok', reason='no_file_in_post')
         
-        # --- লিঙ্ক ক্যাপচার চ্যানেল থেকে লিঙ্ক সংগ্রহ ---
-        if chat_id_str == LINK_CAPTURE_CHANNEL_ID:
-            message_text = post.get('text') or post.get('caption', '')
-            # Assuming the bot's message includes the title to identify the movie
-            # A more robust way is to use a unique ID, but title is a start.
-            # Example message: "Links for 'Movie Title': ..."
-            title_match = re.search(r"for '(.+?)'", message_text, re.IGNORECASE)
-            if title_match:
-                title = title_match.group(1).strip()
-                links = extract_links_from_message(message_text, title)
-                movies.update_one(
-                    {"title": {"$regex": f"^{re.escape(title)}$", "$options": "i"}},
-                    {"$set": {"watch_link": links['watch_link'], "links": links['download_links']}}
-                )
-            return jsonify(status='ok', reason='link_capture_processed')
+        filename = file_data.get('file_name')
+        parsed_info = parse_filename(filename)
+        if not (parsed_info and parsed_info.get('title')): return jsonify(status='ok', reason='parse_failed')
 
-        # --- অ্যাডমিন চ্যানেল থেকে ফাইল আপলোড হ্যান্ডেল করা ---
-        if chat_id_str == ADMIN_CHANNEL_ID:
-            file = post.get('video') or post.get('document')
-            if not (file and file.get('file_name')): return jsonify(status='ok', reason='no_file')
-            
-            filename = file.get('file_name')
-            parsed_info = parse_filename(filename)
-            if not (parsed_info and parsed_info.get('title')): return jsonify(status='ok', reason='parse_failed')
-            
-            tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-            if not tmdb_data: return jsonify(status='ok', reason='no_tmdb_data')
-            
-            quality = (re.search(r'(\d{3,4})p', filename, re.I).group(1) + "p") if re.search(r'(\d{3,4})p', filename, re.I) else "HD"
-            
-            # ডাটাবেসে বেসিক তথ্য দিয়ে এন্ট্রি তৈরি/আপডেট করা
-            db_entry = {**tmdb_data, "type": parsed_info['type'], "languages": parsed_info.get('languages', [])}
-            movies.update_one({"tmdb_id": tmdb_data['tmdb_id']}, {"$set": db_entry, "$push": {"files": {"quality": quality, "message_id": post['message_id']}}}, upsert=True)
-            
-            # লিঙ্ক জেনারেটর বটে ফাইল ফরওয়ার্ড করা
-            try:
-                # Add a caption to the forwarded message so the link capture can identify it.
-                caption = f"Links for '{tmdb_data['title']}'"
-                requests.post(f"{TELEGRAM_API_URL}/copyMessage", json={
-                    "chat_id": f"@{LINK_GENERATOR_BOT_USERNAME}",
-                    "from_chat_id": ADMIN_CHANNEL_ID,
-                    "message_id": post['message_id'],
-                    "caption": caption
-                })
-            except Exception as e:
-                print(f"Error forwarding message to bot: {e}")
+        tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
+        if not tmdb_data: return jsonify(status='ok', reason='no_tmdb_data')
 
-            return jsonify(status='ok', reason='admin_post_processed')
+        quality = (re.search(r'(\d{3,4})p', filename, re.I).group(1) + "p") if re.search(r'(\d{3,4})p', filename, re.I) else "HD"
+        db_entry = {**tmdb_data, "type": parsed_info['type'], "languages": parsed_info.get('languages', [])}
+        movies.update_one({"tmdb_id": tmdb_data['tmdb_id']}, {"$set": db_entry, "$push": {"files": {"quality": quality, "message_id": post['message_id']}}}, upsert=True)
+        print(f"Initial entry created/updated for: {tmdb_data['title']}")
+
+        try:
+            file_id = file_data['file_id']
+            file_path_res = requests.get(f"{TELEGRAM_API_URL}/getFile", params={'file_id': file_id}).json()
+            if not file_path_res.get('ok'):
+                print(f"Failed to get file path: {file_path_res}")
+                return jsonify(status='ok')
+            
+            file_path = file_path_res['result']['file_path']
+            telegram_file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+            
+            with requests.get(telegram_file_url, stream=True) as r:
+                r.raise_for_status()
+                temp_file_path = f"/tmp/{filename.replace('/', '_')}"
+                with open(temp_file_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
+            print(f"File downloaded to: {temp_file_path}")
+
+            with open(temp_file_path, 'rb') as f_to_upload:
+                upload_url = f"{TELEGRAM_API_URL}/sendDocument"
+                files = {'document': (filename, f_to_upload)}
+                caption_text = f"Title: {tmdb_data['title']}"
+                payload = {'chat_id': f"@{LINK_GENERATOR_BOT_USERNAME}", 'caption': caption_text}
+                res = requests.post(upload_url, data=payload, files=files, timeout=60)
+                if res.json().get('ok'): print(f"Successfully sent file to @{LINK_GENERATOR_BOT_USERNAME}")
+                else: print(f"Failed to send file to bot: {res.text}")
+
+            os.remove(temp_file_path)
+            print(f"Temporary file removed: {temp_file_path}")
+
+        except Exception as e: print(f"An error occurred in the file download/upload process: {e}")
+        return jsonify(status='ok', reason='admin_post_processed')
 
     # --- /start কমান্ড হ্যান্ডেল করা ---
     if 'message' in data:
