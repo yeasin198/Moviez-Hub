@@ -42,12 +42,11 @@ if missing_vars:
     sys.exit(1)
 
 # ======================================================================
-
-# --- অ্যাপ্লিকেশন সেটআপ ---
+# --- অ্যাপ্লিকেশন সেটআপ এবং অন্যান্য ফাংশন ---
+# ======================================================================
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 app = Flask(__name__)
 
-# --- অ্যাডমিন অথেন্টিকেশন ফাংশন ---
 def check_auth(username, password):
     return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
 
@@ -63,7 +62,6 @@ def requires_auth(f):
         return f(*args, **kwargs)
     return decorated
 
-# --- ডাটাবেস কানেকশন ---
 try:
     client = MongoClient(MONGO_URI)
     db = client["movie_db"]
@@ -75,15 +73,12 @@ except Exception as e:
     print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
     sys.exit(1)
 
-# --- Context Processor: বিজ্ঞাপনের কোড সহজলভ্য করার জন্য ---
 @app.context_processor
 def inject_ads():
     ad_codes = settings.find_one()
-    return dict(ad_settings=(ad_codes or {}), bot_username=BOT_USERNAME)
+    return dict(ad_settings=(ad_codes or {}), bot_username=BOT_USERNAME, main_channel_link=MAIN_CHANNEL_LINK)
 
-# --- মেসেজ অটো-ডিলিট ফাংশন এবং সিডিউলার সেটআপ ---
 def delete_message_after_delay(chat_id, message_id):
-    """নির্দিষ্ট সময় পর টেলিগ্রাম মেসেজ ডিলিট করার ফাংশন।"""
     print(f"Attempting to delete message {message_id} from chat {chat_id}")
     try:
         url = f"{TELEGRAM_API_URL}/deleteMessage"
@@ -96,7 +91,6 @@ scheduler = BackgroundScheduler(daemon=True)
 scheduler.start()
 
 def escape_markdown(text: str) -> str:
-    """Helper function to escape telegram MarkdownV2 characters."""
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
@@ -252,7 +246,7 @@ index_html = """
         <i class="fa-brands fa-telegram telegram-icon"></i>
         <h2>Join Our Telegram Channel</h2>
         <p>Get the latest movie updates, news, and direct download links right on your phone!</p>
-        <a href="{{ ad_settings.main_channel_link or '#' }}" target="_blank" class="telegram-join-button"><i class="fa-brands fa-telegram"></i> Join Main Channel</a>
+        <a href="{{ main_channel_link or '#' }}" target="_blank" class="telegram-join-button"><i class="fa-brands fa-telegram"></i> Join Main Channel</a>
     </div>
   {% endif %}
 </main>
@@ -597,15 +591,12 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 </div></body></html>
 """
 
+
 # ======================================================================
 # --- Helper Functions ---
 # ======================================================================
 
 def parse_filename(filename):
-    """
-    ফাইলের নাম থেকে মুভি/সিরিজের তথ্য এবং সকল ভাষা পার্স করার জন্য উন্নত ফাংশন।
-    এটি বিভিন্ন ফরম্যাট এবং অপ্রয়োজনীয় ট্যাগ হ্যান্ডেল করতে পারে।
-    """
     LANGUAGE_MAP = {
         'hindi': 'Hindi', 'hin': 'Hindi',
         'english': 'English', 'eng': 'English',
@@ -617,7 +608,6 @@ def parse_filename(filename):
         'dual audio': ['Hindi', 'English'],
         'multi audio': ['Multi Audio']
     }
-
     cleaned_name = filename.replace('.', ' ').replace('_', ' ').strip()
     found_languages = []
     temp_name_for_lang = cleaned_name.lower()
@@ -626,7 +616,6 @@ def parse_filename(filename):
             if isinstance(lang_name, list): found_languages.extend(lang_name)
             else: found_languages.append(lang_name)
     languages = sorted(list(set(found_languages))) if found_languages else []
-
     series_match = re.search(r'^(.*?)[\s\._-]*(?:S|Season)[\s\._-]?(\d{1,2})[\s\._-]*(?:E|Episode)[\s\._-]?(\d{1,3})', cleaned_name, re.I)
     if series_match:
         title = series_match.group(1).strip()
@@ -635,20 +624,18 @@ def parse_filename(filename):
         title = re.sub(r'\b(season|s)\s*\d+\s*$', '', title, flags=re.I).strip()
         title = re.sub(r'\[.*?\]|\(.*?\)', '', title).strip()
         return {'type': 'series', 'title': title.title(), 'season': season_num, 'episode': episode_num, 'languages': languages}
-
     year_match = re.search(r'\(?(19[5-9]\d|20\d{2})\)?', cleaned_name)
     year = None
-    title = cleaned_name
+    title_part = cleaned_name
     if year_match:
         year = year_match.group(1)
-        title = cleaned_name[:year_match.start()].strip()
-    
+        title_part = cleaned_name[:year_match.start()].strip()
     junk_patterns = [r'\b(1080p|720p|480p|2160p|4k|uhd|web-?dl|webrip|brrip|bluray|dvdrip|hdrip|hdcam|camrip|x264|x265|hevc|avc|aac|ac3|dts|5\.1|7\.1)\b', r'\b(complete|pack|final|uncut|extended|remastered)\b', r'\[.*?\]', r'\(.*?\)']
     for lang_key in LANGUAGE_MAP.keys():
-        title = re.sub(r'\b' + lang_key + r'\b', '', title, flags=re.I)
+        title_part = re.sub(r'\b' + lang_key + r'\b', '', title_part, flags=re.I)
     for pattern in junk_patterns:
-        title = re.sub(pattern, '', title, flags=re.I)
-    title = re.sub(r'\s+', ' ', title).strip()
+        title_part = re.sub(pattern, '', title_part, flags=re.I)
+    title = re.sub(r'\s+', ' ', title_part).strip()
     return {'type': 'movie', 'title': title.title(), 'year': year, 'languages': languages}
 
 
@@ -661,9 +648,23 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         search_res = requests.get(search_url, timeout=5).json()
         if not search_res.get("results"): return None
         tmdb_id = search_res["results"][0].get("id")
-        detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}"
+        detail_url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=videos"
         res = requests.get(detail_url, timeout=5).json()
-        return {"tmdb_id": tmdb_id, "title": res.get("title") or res.get("name"), "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, "overview": res.get("overview"), "release_date": res.get("release_date") or res.get("first_air_date"), "genres": [g['name'] for g in res.get("genres", [])], "vote_average": res.get("vote_average")}
+        trailer_key = None
+        for v in res.get("videos", {}).get("results", []):
+            if v.get('type') == 'Trailer' and v.get('site') == 'YouTube':
+                trailer_key = v.get('key')
+                break
+        return {
+            "tmdb_id": tmdb_id, 
+            "title": res.get("title") or res.get("name"), 
+            "poster": f"https://image.tmdb.org/t/p/w500{res.get('poster_path')}" if res.get('poster_path') else None, 
+            "overview": res.get("overview"), 
+            "release_date": res.get("release_date") or res.get("first_air_date"), 
+            "genres": [g['name'] for g in res.get("genres", [])], 
+            "vote_average": res.get("vote_average"),
+            "trailer_key": trailer_key
+        }
     except requests.RequestException as e:
         print(f"TMDb API error for '{title}': {e}")
     return None
@@ -704,18 +705,10 @@ def movie_detail(movie_id):
         related_movies = []
         if movie.get("genres"):
             related_movies = list(movies.find({"genres": {"$in": movie["genres"]}, "_id": {"$ne": ObjectId(movie_id)}}).limit(12))
-        trailer_key = None
-        if movie.get("tmdb_id") and TMDB_API_KEY:
-            tmdb_type = "tv" if movie.get("type") == "series" else "movie"
-            video_url = f"https://api.themoviedb.org/3/{tmdb_type}/{movie['tmdb_id']}/videos?api_key={TMDB_API_KEY}"
-            try:
-                video_res = requests.get(video_url, timeout=3).json()
-                for v in video_res.get("results", []):
-                    if v.get('type') == 'Trailer' and v.get('site') == 'YouTube': trailer_key = v.get('key'); break
-            except requests.RequestException: pass
-        return render_template_string(detail_html, movie=movie, trailer_key=trailer_key, related_movies=process_movie_list(related_movies))
+        return render_template_string(detail_html, movie=movie, trailer_key=movie.get("trailer_key"), related_movies=process_movie_list(related_movies))
     except Exception: return "Content not found", 404
 
+# ... (বাকি রুটগুলো আগের মতোই থাকবে)
 @app.route('/watch/<movie_id>')
 def watch_movie(movie_id):
     try:
@@ -747,7 +740,6 @@ def recently_added_all(): return render_full_list(list(movies.find({"is_coming_s
 # ======================================================================
 # --- Admin and Webhook Routes ---
 # ======================================================================
-
 @app.route('/admin', methods=["GET", "POST"])
 @requires_auth
 def admin():
@@ -913,6 +905,8 @@ def telegram_webhook():
                 movies.update_one({"_id": existing_movie['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
                 update_doc["$push"] = {"files": new_file}
                 if new_languages: update_doc["$addToSet"] = {"languages": {"$each": new_languages}}
+                # Ensure the new tmdb data updates existing one
+                update_doc["$set"].update({k: v for k, v in tmdb_data.items() if v})
                 movies.update_one({"_id": existing_movie['_id']}, update_doc)
             else:
                 movie_doc = { **tmdb_data, "type": "movie", "is_trending": False, "is_coming_soon": False, "files": [new_file], "languages": new_languages }
@@ -942,13 +936,13 @@ def telegram_webhook():
                         episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == s_num and ep.get('episode_number') == e_num), None)
                         if episode: 
                             message_to_copy_id = episode.get('message_id')
-                            file_info_text = f"S{s_num:02d}E{e_num:02d} \({escape_markdown(episode.get('quality', ''))}\)"
+                            file_info_text = f"S{s_num:02d}E{e_num:02d} \\({escape_markdown(episode.get('quality', ''))}\\)"
                     elif content.get('type') == 'movie' and len(payload_parts) == 2:
                         quality_from_payload = payload_parts[1]
                         file = next((f for f in content.get('files', []) if f.get('quality') == quality_from_payload), None)
                         if file: 
                             message_to_copy_id = file.get('message_id')
-                            file_info_text = f"\({escape_markdown(file.get('quality', ''))}\)"
+                            file_info_text = f"\\({escape_markdown(file.get('quality', ''))}\\)"
                     
                     if message_to_copy_id:
                         escaped_title = escape_markdown(content['title'])
