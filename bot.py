@@ -20,11 +20,19 @@ BOT_USERNAME = os.environ.get("BOT_USERNAME")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
+# আপনার চ্যানেল এবং ডেভেলপারের তথ্য
+MAIN_CHANNEL_LINK = os.environ.get("MAIN_CHANNEL_LINK")
+UPDATE_CHANNEL_LINK = os.environ.get("UPDATE_CHANNEL_LINK")
+DEVELOPER_USER_LINK = os.environ.get("DEVELOPER_USER_LINK")
+
 # --- প্রয়োজনীয় ভেরিয়েবলগুলো সেট করা হয়েছে কিনা তা পরীক্ষা করা ---
 required_vars = {
     "MONGO_URI": MONGO_URI, "BOT_TOKEN": BOT_TOKEN, "TMDB_API_KEY": TMDB_API_KEY,
     "ADMIN_CHANNEL_ID": ADMIN_CHANNEL_ID, "BOT_USERNAME": BOT_USERNAME,
     "ADMIN_USERNAME": ADMIN_USERNAME, "ADMIN_PASSWORD": ADMIN_PASSWORD,
+    "MAIN_CHANNEL_LINK": MAIN_CHANNEL_LINK,
+    "UPDATE_CHANNEL_LINK": UPDATE_CHANNEL_LINK,
+    "DEVELOPER_USER_LINK": DEVELOPER_USER_LINK,
 }
 
 missing_vars = [name for name, value in required_vars.items() if not value]
@@ -80,18 +88,17 @@ def delete_message_after_delay(chat_id, message_id):
     try:
         url = f"{TELEGRAM_API_URL}/deleteMessage"
         payload = {'chat_id': chat_id, 'message_id': message_id}
-        response = requests.post(url, json=payload)
-        if response.json().get('ok'):
-            print(f"Successfully deleted message {message_id} from chat {chat_id}")
-        else:
-            print(f"Failed to delete message: {response.text}")
+        requests.post(url, json=payload)
     except Exception as e:
         print(f"Error in delete_message_after_delay: {e}")
 
-# সিডিউলার তৈরি এবং চালু করা
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.start()
 
+def escape_markdown(text: str) -> str:
+    """Helper function to escape telegram MarkdownV2 characters."""
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 # ======================================================================
 # --- HTML টেমপ্লেট ---
@@ -245,7 +252,7 @@ index_html = """
         <i class="fa-brands fa-telegram telegram-icon"></i>
         <h2>Join Our Telegram Channel</h2>
         <p>Get the latest movie updates, news, and direct download links right on your phone!</p>
-        <a href="https://t.me/+60goZWp-FpkxNzVl" target="_blank" class="telegram-join-button"><i class="fa-brands fa-telegram"></i> Join Main Channel</a>
+        <a href="{{ ad_settings.main_channel_link or '#' }}" target="_blank" class="telegram-join-button"><i class="fa-brands fa-telegram"></i> Join Main Channel</a>
     </div>
   {% endif %}
 </main>
@@ -590,7 +597,6 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 </div></body></html>
 """
 
-
 # ======================================================================
 # --- Helper Functions ---
 # ======================================================================
@@ -866,7 +872,6 @@ def telegram_webhook():
         
         if not parsed_info or not parsed_info.get('title'): return jsonify(status='ok', reason='parsing_failed')
         
-        # --- স্বয়ংক্রিয়ভাবে ফাইলের নাম থেকে পোস্টার ব্যাজ শনাক্ত করা ---
         poster_badge = None
         quality_tags = ['HDRip', 'WEB-DL', 'WEBRip', 'BluRay', 'HDTS', 'HDCAM', 'CAM', 'TS', 'HD']
         badge_regex = r'\b(' + '|'.join(quality_tags) + r')\b'
@@ -925,28 +930,64 @@ def telegram_webhook():
                     payload_parts = parts[1].split('_')
                     doc_id_str = payload_parts[0]
                     content = movies.find_one({"_id": ObjectId(doc_id_str)})
-                    if not content: return requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Content not found."})
+                    if not content:
+                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Content not found."})
+                        return jsonify(status='ok')
+
                     message_to_copy_id = None
+                    file_info_text = ""
+                    
                     if content.get('type') == 'series' and len(payload_parts) == 3:
                         s_num, e_num = int(payload_parts[1]), int(payload_parts[2])
                         episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == s_num and ep.get('episode_number') == e_num), None)
-                        if episode: message_to_copy_id = episode.get('message_id')
+                        if episode: 
+                            message_to_copy_id = episode.get('message_id')
+                            file_info_text = f"S{s_num:02d}E{e_num:02d} \({escape_markdown(episode.get('quality', ''))}\)"
                     elif content.get('type') == 'movie' and len(payload_parts) == 2:
-                        file = next((f for f in content.get('files', []) if f.get('quality') == payload_parts[1]), None)
-                        if file: message_to_copy_id = file.get('message_id')
+                        quality_from_payload = payload_parts[1]
+                        file = next((f for f in content.get('files', []) if f.get('quality') == quality_from_payload), None)
+                        if file: 
+                            message_to_copy_id = file.get('message_id')
+                            file_info_text = f"\({escape_markdown(file.get('quality', ''))}\)"
                     
                     if message_to_copy_id:
-                        res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json={'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_to_copy_id}).json()
+                        escaped_title = escape_markdown(content['title'])
+                        
+                        caption_text = (
+                            f"🎬 *{escaped_title}* {file_info_text}\n\n"
+                            f"✅ *Successfully Sent To Your PM*\n\n"
+                            f"🔰 Join Our Main Channel\n"
+                            f"➡️ [CTG Movie Main]({MAIN_CHANNEL_LINK})\n\n"
+                            f"📢 Join Our Update Channel\n"
+                            f"➡️ [CTG Movie Official]({UPDATE_CHANNEL_LINK})\n\n"
+                            f"💬 For Any Help or Request\n"
+                            f"➡️ [Contact Developer]({DEVELOPER_USER_LINK})"
+                        )
+                        
+                        payload = {
+                            'chat_id': chat_id,
+                            'from_chat_id': ADMIN_CHANNEL_ID,
+                            'message_id': message_to_copy_id,
+                            'caption': caption_text,
+                            'parse_mode': 'MarkdownV2'
+                        }
+                        
+                        res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload).json()
+                        
                         if res.get('ok'):
                             new_msg_id = res['result']['message_id']
                             run_time = datetime.now() + timedelta(minutes=30)
                             scheduler.add_job(func=delete_message_after_delay, trigger='date', run_date=run_time, args=[chat_id, new_msg_id], id=f'del_{chat_id}_{new_msg_id}', replace_existing=True)
-                        else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file. It might have been deleted from the channel."})
-                    else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Requested file or episode not found."})
+                        else: 
+                            print(f"Failed to copy message: {res.get('description')}")
+                            requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file. It might have been deleted from the channel."})
+                    else: 
+                        requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Requested file or episode not found."})
                 except Exception as e:
                     print(f"Error processing /start command: {e}")
                     requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred."})
-            else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "আমাদের ওয়েবসাইটে আপনাকে স্বাগতম."})
+            else: 
+                requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Welcome to our website! Browse and find your favorite content."})
 
     return jsonify(status='ok')
 
