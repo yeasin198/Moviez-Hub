@@ -36,11 +36,9 @@ required_vars = {
     "UPDATE_CHANNEL_LINK": UPDATE_CHANNEL_LINK,
     "DEVELOPER_USER_LINK": DEVELOPER_USER_LINK,
 }
-
 missing_vars = [name for name, value in required_vars.items() if not value]
 if missing_vars:
     print(f"FATAL: Missing required environment variables: {', '.join(missing_vars)}")
-    print("Please set these variables in your deployment environment and restart the application.")
     sys.exit(1)
 
 # ======================================================================
@@ -397,14 +395,14 @@ detail_html = """
                     <tbody>
                     {% if movie.type == 'movie' and movie.files %}
                         {% for file in movie.files | sort(attribute='quality') %}
-                        <tr><td>{{ file.quality }}</td><td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="download-btn">Get File</a></td></tr>
+                        <tr><td>{{ file.quality }}</td><td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" target="_blank" class="download-btn">Get File</a></td></tr>
                         {% endfor %}
                     {% elif movie.type == 'series' %}
                         {% if movie.season_packs %}{% for pack in movie.season_packs | sort(attribute='season') %}
-                        <tr><td>Complete Season {{ pack.season }} Pack</td><td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_S{{ pack.season }}" class="download-btn">Get Pack</a></td></tr>
+                        <tr><td>Complete Season {{ pack.season }} Pack</td><td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_S{{ pack.season }}" target="_blank" class="download-btn">Get Pack</a></td></tr>
                         {% endfor %}{% endif %}
                         {% if movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}
-                        <tr><td>S{{ "%02d"|format(ep.season) }}E{{ "%02d"|format(ep.episode_number) }}</td><td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="download-btn">Get Episode</a></td></tr>
+                        <tr><td>S{{ "%02d"|format(ep.season) }}E{{ "%02d"|format(ep.episode_number) }}</td><td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" target="_blank" class="download-btn">Get Episode</a></td></tr>
                         {% endfor %}{% endif %}
                     {% endif %}
                     </tbody>
@@ -623,7 +621,6 @@ genres_html = """
 {% endblock %}
 """
 
-
 # --- Jinja2 কাস্টম লোডার সেটআপ ---
 class DictLoader(BaseLoader):
     def __init__(self, templates):
@@ -635,21 +632,21 @@ class DictLoader(BaseLoader):
         raise TemplateNotFound(template)
 
 templates_dict = {
-    "base_html": base_html,
-    "index_html": index_html,
-    "list_page_html": list_page_html,
-    "detail_html": detail_html,
-    "genres_html": genres_html,
-    "admin_html": admin_html,
-    "edit_html": edit_html,
-    "contact_html": contact_html,
+    "base_html": base_html, "index_html": index_html, "list_page_html": list_page_html,
+    "detail_html": detail_html, "genres_html": genres_html, "admin_html": admin_html,
+    "edit_html": edit_html, "contact_html": contact_html,
 }
-jinja_env = Environment(loader=DictLoader(templates_dict), autoescape=select_autoescape(['html', 'xml']))
+
+jinja_env = Environment(
+    loader=DictLoader(templates_dict),
+    autoescape=select_autoescape(['html', 'xml'])
+)
+jinja_env.globals['url_for'] = url_for
 
 def render_template_custom(template_name, **context):
     template = jinja_env.get_template(template_name)
     return template.render(**context)
-
+    
 # ======================================================================
 # --- Helper Functions and Other Setups ---
 # ======================================================================
@@ -677,9 +674,9 @@ except Exception as e:
 @app.context_processor
 def inject_global_vars():
     return dict(
-        site_name=SITE_NAME,
-        now=datetime.utcnow(),
-        ad_settings=settings.find_one() or {}
+        site_name=SITE_NAME, now=datetime.utcnow(),
+        ad_settings=settings.find_one() or {}, bot_username=BOT_USERNAME,
+        main_channel_link=MAIN_CHANNEL_LINK,
     )
 
 def delete_message_after_delay(chat_id, message_id):
@@ -988,12 +985,13 @@ def telegram_webhook():
                 movies.insert_one(movie_doc)
                 print("SUCCESS: New movie created.")
     elif 'message' in data:
-        message, chat_id, text = data['message'], message['chat']['id'], message.get('text', '')
+        message, chat_id, text = data['message'], data['message']['chat']['id'], data['message'].get('text', '')
         if text.startswith('/start'):
             parts = text.split()
             if len(parts) > 1:
                 try:
-                    payload_parts, doc_id_str = parts[1].split('_'), payload_parts[0]
+                    payload_parts = parts[1].split('_')
+                    doc_id_str = payload_parts[0]
                     content = movies.find_one({"_id": ObjectId(doc_id_str)})
                     if not content: return jsonify(status='ok')
                     message_to_copy_id, file_info_text = None, ""
