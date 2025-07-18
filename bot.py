@@ -21,19 +21,16 @@ BOT_USERNAME = os.environ.get("BOT_USERNAME")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 
-# আপনার চ্যানেল এবং ডেভেলপারের তথ্য
 MAIN_CHANNEL_LINK = os.environ.get("MAIN_CHANNEL_LINK")
 UPDATE_CHANNEL_LINK = os.environ.get("UPDATE_CHANNEL_LINK")
 DEVELOPER_USER_LINK = os.environ.get("DEVELOPER_USER_LINK")
 SITE_NAME = "MovieDokan" 
 
-# --- প্রয়োজনীয় ভেরিয়েবলগুলো সেট করা হয়েছে কিনা তা পরীক্ষা করা ---
 required_vars = {
     "MONGO_URI": MONGO_URI, "BOT_TOKEN": BOT_TOKEN, "TMDB_API_KEY": TMDB_API_KEY,
     "ADMIN_CHANNEL_ID": ADMIN_CHANNEL_ID, "BOT_USERNAME": BOT_USERNAME,
     "ADMIN_USERNAME": ADMIN_USERNAME, "ADMIN_PASSWORD": ADMIN_PASSWORD,
-    "MAIN_CHANNEL_LINK": MAIN_CHANNEL_LINK,
-    "UPDATE_CHANNEL_LINK": UPDATE_CHANNEL_LINK,
+    "MAIN_CHANNEL_LINK": MAIN_CHANNEL_LINK, "UPDATE_CHANNEL_LINK": UPDATE_CHANNEL_LINK,
     "DEVELOPER_USER_LINK": DEVELOPER_USER_LINK,
 }
 missing_vars = [name for name, value in required_vars.items() if not value]
@@ -637,15 +634,18 @@ templates_dict = {
     "edit_html": edit_html, "contact_html": contact_html,
 }
 
-jinja_env = Environment(
-    loader=DictLoader(templates_dict),
-    autoescape=select_autoescape(['html', 'xml'])
-)
+jinja_env = Environment(loader=DictLoader(templates_dict), autoescape=select_autoescape(['html', 'xml']))
 jinja_env.globals['url_for'] = url_for
 
 def render_template_custom(template_name, **context):
+    g = {
+        'site_name': SITE_NAME, 'now': datetime.utcnow(),
+        'ad_settings': settings.find_one() or {}, 'bot_username': BOT_USERNAME,
+        'main_channel_link': MAIN_CHANNEL_LINK,
+    }
+    full_context = {**g, **context}
     template = jinja_env.get_template(template_name)
-    return template.render(**context)
+    return template.render(full_context)
     
 # ======================================================================
 # --- Helper Functions and Other Setups ---
@@ -663,30 +663,20 @@ def requires_auth(f):
 try:
     client = MongoClient(MONGO_URI)
     db = client["movie_db"]
-    movies = db["movies"]
-    settings = db["settings"]
-    feedback = db["feedback"]
+    movies, settings, feedback = db["movies"], db["settings"], db["feedback"]
     print("SUCCESS: Successfully connected to MongoDB!")
 except Exception as e:
     print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
     sys.exit(1)
-    
-@app.context_processor
-def inject_global_vars():
-    return dict(
-        site_name=SITE_NAME, now=datetime.utcnow(),
-        ad_settings=settings.find_one() or {}, bot_username=BOT_USERNAME,
-        main_channel_link=MAIN_CHANNEL_LINK,
-    )
+
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.start()
 
 def delete_message_after_delay(chat_id, message_id):
     try:
         requests.post(f"{TELEGRAM_API_URL}/deleteMessage", json={'chat_id': chat_id, 'message_id': message_id})
     except Exception as e:
         print(f"Error in delete_message_after_delay: {e}")
-
-scheduler = BackgroundScheduler(daemon=True)
-scheduler.start()
 
 def escape_markdown(text: str) -> str:
     if not isinstance(text, str): return ''
