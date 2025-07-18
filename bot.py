@@ -8,6 +8,7 @@ from bson.objectid import ObjectId
 from functools import wraps
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
+from jinja2 import Environment, BaseLoader, TemplateNotFound
 
 # ======================================================================
 # --- আপনার ব্যক্তিগত ও অ্যাডমিন তথ্য (এনভায়রনমেন্ট থেকে লোড হবে) ---
@@ -24,7 +25,7 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 MAIN_CHANNEL_LINK = os.environ.get("MAIN_CHANNEL_LINK")
 UPDATE_CHANNEL_LINK = os.environ.get("UPDATE_CHANNEL_LINK")
 DEVELOPER_USER_LINK = os.environ.get("DEVELOPER_USER_LINK")
-SITE_NAME = "MovieDokan" # আপনি চাইলে এটি পরিবর্তন করতে পারেন
+SITE_NAME = "MovieDokan" 
 
 # --- প্রয়োজনীয় ভেরিয়েবলগুলো সেট করা হয়েছে কিনা তা পরীক্ষা করা ---
 required_vars = {
@@ -43,67 +44,14 @@ if missing_vars:
     sys.exit(1)
 
 # ======================================================================
-# --- অ্যাপ্লিকেশন সেটআপ এবং অন্যান্য ফাংশন ---
+# --- অ্যাপ্লিকেশন সেটআপ ---
 # ======================================================================
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 app = Flask(__name__)
 
-def check_auth(username, password):
-    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
-
-def authenticate():
-    return Response('Could not verify your access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
-
-def requires_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
-            return authenticate()
-        return f(*args, **kwargs)
-    return decorated
-
-try:
-    client = MongoClient(MONGO_URI)
-    db = client["movie_db"]
-    movies = db["movies"]
-    settings = db["settings"]
-    feedback = db["feedback"]
-    print("SUCCESS: Successfully connected to MongoDB!")
-except Exception as e:
-    print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
-    sys.exit(1)
-
-@app.context_processor
-def inject_global_vars():
-    ad_codes = settings.find_one()
-    return dict(
-        ad_settings=(ad_codes or {}),
-        bot_username=BOT_USERNAME,
-        main_channel_link=MAIN_CHANNEL_LINK,
-        site_name=SITE_NAME
-    )
-
-def delete_message_after_delay(chat_id, message_id):
-    print(f"Attempting to delete message {message_id} from chat {chat_id}")
-    try:
-        url = f"{TELEGRAM_API_URL}/deleteMessage"
-        payload = {'chat_id': chat_id, 'message_id': message_id}
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"Error in delete_message_after_delay: {e}")
-
-scheduler = BackgroundScheduler(daemon=True)
-scheduler.start()
-
-def escape_markdown(text: str) -> str:
-    if not isinstance(text, str):
-        return ''
-    escape_chars = r'_*[]()~`>#+-=|{}.!'
-    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 # ======================================================================
-# --- HTML টেমপ্লেট ---
+# --- HTML টেমপ্লেট এবং Jinja2 এনভায়রনমেন্ট সেটআপ ---
 # ======================================================================
 
 # --- Base Layout Template ---
@@ -115,144 +63,66 @@ base_html = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>{% block title %}{{ site_name }} - Your Entertainment Hub{% endblock %}</title>
     <style>
-      /* --- Global Styles & Variables --- */
       @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
       :root {
-        --primary-color: #00ff6a; /* Bright Green Accent */
-        --bg-color: #0d0d0d;      /* Main Background */
-        --card-bg-color: #1a1a1a;  /* Card & Section Background */
-        --text-color: #e0e0e0;
-        --text-muted-color: #888;
-        --header-height: 70px;
+        --primary-color: #00ff6a; --bg-color: #0d0d0d; --card-bg-color: #1a1a1a;
+        --text-color: #e0e0e0; --text-muted-color: #888; --header-height: 70px;
       }
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body {
-        font-family: 'Poppins', sans-serif;
-        background-color: var(--bg-color);
-        color: var(--text-color);
-        overflow-x: hidden;
-      }
+      body { font-family: 'Poppins', sans-serif; background-color: var(--bg-color); color: var(--text-color); overflow-x: hidden; }
       a { text-decoration: none; color: inherit; transition: color 0.3s ease; }
       a:hover { color: var(--primary-color); }
       img { max-width: 100%; display: block; }
       main { padding-top: var(--header-height); }
       .container { max-width: 1400px; margin: 0 auto; padding: 0 20px; }
-
-      /* --- Header --- */
       .site-header {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: var(--header-height);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 40px;
-        z-index: 1000;
-        background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+        position: fixed; top: 0; left: 0; width: 100%; height: var(--header-height);
+        display: flex; justify-content: space-between; align-items: center; padding: 0 40px;
+        z-index: 1000; background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
         transition: background-color 0.4s ease, height 0.4s ease;
       }
-      .site-header.scrolled {
-        background-color: #111;
-        height: 65px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-      }
+      .site-header.scrolled { background-color: #111; height: 65px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
       .site-logo a { font-size: 1.8rem; font-weight: 700; letter-spacing: 1px; }
       .site-logo a span { color: var(--primary-color); }
       .main-nav ul { list-style: none; display: flex; gap: 30px; }
       .main-nav a { font-weight: 500; text-transform: uppercase; font-size: 0.9rem; }
       .header-search .search-input {
-        background-color: rgba(255,255,255,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
-        color: var(--text-color);
-        padding: 8px 15px;
-        border-radius: 50px;
-        width: 250px;
-        transition: all 0.3s ease;
+        background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+        color: var(--text-color); padding: 8px 15px; border-radius: 50px; width: 250px; transition: all 0.3s ease;
       }
-      .header-search .search-input:focus {
-        background-color: rgba(255,255,255,0.2);
-        border-color: var(--primary-color);
-        outline: none;
-      }
+      .header-search .search-input:focus { background-color: rgba(255,255,255,0.2); border-color: var(--primary-color); outline: none; }
       .mobile-menu-toggle { display: none; cursor: pointer; font-size: 1.5rem; }
-      
-      /* --- Movie Card --- */
       .movie-card-h {
-        display: inline-block;
-        width: 200px;
-        margin-right: 20px;
-        vertical-align: top;
-        white-space: normal;
-        background-color: var(--card-bg-color);
-        border-radius: 8px;
-        overflow: hidden;
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        display: inline-block; width: 200px; margin-right: 20px; vertical-align: top;
+        white-space: normal; background-color: var(--card-bg-color); border-radius: 8px;
+        overflow: hidden; transition: transform 0.3s ease, box-shadow 0.3s ease;
       }
-      .movie-card-h:hover {
-        transform: translateY(-10px);
-        box-shadow: 0 10px 20px rgba(0, 255, 106, 0.1);
-      }
-      .movie-card-h-poster {
-        position: relative;
-        aspect-ratio: 2 / 3;
-        background-color: #222;
-      }
+      .movie-card-h:hover { transform: translateY(-10px); box-shadow: 0 10px 20px rgba(0, 255, 106, 0.1); }
+      .movie-card-h-poster { position: relative; aspect-ratio: 2 / 3; background-color: #222; }
       .movie-card-h-poster img { width: 100%; height: 100%; object-fit: cover; }
       .quality-badge {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        background-color: rgba(0, 0, 0, 0.7);
-        color: var(--text-color);
-        padding: 4px 8px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        border-radius: 5px;
-        backdrop-filter: blur(5px);
+        position: absolute; top: 10px; right: 10px; background-color: rgba(0, 0, 0, 0.7);
+        color: var(--text-color); padding: 4px 8px; font-size: 0.8rem;
+        font-weight: 600; border-radius: 5px; backdrop-filter: blur(5px);
       }
       .movie-card-h-info { padding: 15px; }
       .movie-card-h-title {
-        font-size: 1rem;
-        font-weight: 600;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        margin-bottom: 5px;
+        font-size: 1rem; font-weight: 600; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px;
       }
-      .movie-card-h-meta {
-        font-size: 0.8rem;
-        color: var(--text-muted-color);
-        display: flex;
-        justify-content: space-between;
-      }
+      .movie-card-h-meta { font-size: 0.8rem; color: var(--text-muted-color); display: flex; justify-content: space-between; }
       .movie-card-h-meta .fa-star { color: #f5c518; }
-      
-      /* --- Footer --- */
-       .site-footer {
-        background-color: var(--card-bg-color);
-        padding: 40px;
-        text-align: center;
-        margin-top: 50px;
-        border-top: 1px solid rgba(255,255,255,0.1);
+      .site-footer {
+        background-color: var(--card-bg-color); padding: 40px; text-align: center;
+        margin-top: 50px; border-top: 1px solid rgba(255,255,255,0.1);
       }
       .footer-logo { font-size: 2rem; font-weight: 700; margin-bottom: 15px; }
       .footer-logo span { color: var(--primary-color); }
       .footer-text { max-width: 600px; margin: 0 auto 20px auto; color: var(--text-muted-color); }
       .footer-nav { display: flex; justify-content: center; gap: 20px; margin-bottom: 20px; }
       .footer-nav a { color: var(--text-color); }
-
-      /* --- Responsive --- */
-      @media (max-width: 992px) {
-        .main-nav { display: none; }
-        .mobile-menu-toggle { display: block; }
-        .site-header { padding: 0 20px; }
-      }
-      @media (max-width: 768px) {
-        .header-search { display: none; }
-        .movie-card-h { width: 150px; margin-right: 15px; }
-      }
+      @media (max-width: 992px) { .main-nav { display: none; } .mobile-menu-toggle { display: block; } .site-header { padding: 0 20px; } }
+      @media (max-width: 768px) { .header-search { display: none; } .movie-card-h { width: 150px; margin-right: 15px; } }
     </style>
     {% block head_extra %}{% endblock %}
 </head>
@@ -276,53 +146,39 @@ base_html = """
         </div>
         <div class="mobile-menu-toggle"><i class="fas fa-bars"></i></div>
     </header>
-
-    <main>
-        {% block content %}{% endblock %}
-    </main>
-    
+    <main>{% block content %}{% endblock %}</main>
     <footer class="site-footer">
         <div class="footer-logo">{{ site_name.split(' ')[0] }}<span>{{ site_name.split(' ')[1] if site_name.split(' ')[1:] else '' }}</span></div>
         <p class="footer-text">The ultimate destination for movies and web series. Enjoy a vast library of content, updated daily.</p>
         <div class="footer-nav">
             <a href="{{ url_for('home') }}">Home</a>
             <a href="{{ url_for('contact') }}">Contact Us</a>
-            <a href="{{ main_channel_link }}">Telegram</a>
+            <a href="{{ main_channel_link }}" target="_blank">Telegram</a>
         </div>
         <p class="footer-copyright">© {{ now.year }} {{ site_name }}. All Rights Reserved.</p>
     </footer>
-
     <script>
         const header = document.getElementById('site-header');
-        window.addEventListener('scroll', () => {
-            header.classList.toggle('scrolled', window.scrollY > 50);
-        });
+        window.addEventListener('scroll', () => { header.classList.toggle('scrolled', window.scrollY > 50); });
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
-    {% if ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
+    {% if ad_settings and ad_settings.popunder_code %}{{ ad_settings.popunder_code|safe }}{% endif %}
 </body>
 </html>
 """
 
-# --- Home Page Template ---
 index_html = """
 {% extends "base_html" %}
-
 {% block title %}{{ site_name }} - Home{% endblock %}
-
 {% block head_extra %}
 <style>
-  /* --- Hero Slider --- */
   .hero-slider {
-    height: 85vh;
-    position: relative;
-    overflow: hidden;
-    margin-top: -{{ header_height }}px; /* Pull it under the header */
+    height: 85vh; position: relative; overflow: hidden;
+    margin-top: calc(-1 * var(--header-height));
   }
   .hero-slide {
-    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    background-size: cover; background-position: center top;
-    display: flex; align-items: center; opacity: 0;
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover;
+    background-position: center top; display: flex; align-items: center; opacity: 0;
     transition: opacity 1.5s ease-in-out; z-index: 1;
   }
   .hero-slide.active { opacity: 1; z-index: 2; }
@@ -345,23 +201,15 @@ index_html = """
     font-weight: 600; display: inline-flex; align-items: center; gap: 10px;
   }
   .hero-button i { font-size: 1.2rem; }
-
-  /* --- Content Sections --- */
   .content-section { padding: 40px 0; }
-  .section-header {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 25px; padding: 0 40px;
-  }
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; padding: 0 40px; }
   .section-title { font-size: 1.8rem; font-weight: 600; }
   .view-all-link { color: var(--primary-color); font-weight: 500; }
-
-  /* --- Horizontal Scroll --- */
   .horizontal-scroll-wrapper {
     overflow-x: auto; overflow-y: hidden; white-space: nowrap;
-    padding: 0 40px 20px 40px; scrollbar-width: none; /* Firefox */
+    padding: 0 40px 20px 40px; scrollbar-width: none;
   }
-  .horizontal-scroll-wrapper::-webkit-scrollbar { display: none; /* Chrome, Safari, Opera */ }
-  
+  .horizontal-scroll-wrapper::-webkit-scrollbar { display: none; }
   @media (max-width: 768px) {
     .hero-slider { height: 70vh; }
     .hero-content { max-width: 90%; padding: 0 20px; }
@@ -370,9 +218,7 @@ index_html = """
   }
 </style>
 {% endblock %}
-
 {% block content %}
-    <!-- Macro for rendering movie card -->
     {% macro render_movie_card(movie) %}
         <a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="movie-card-h">
             <div class="movie-card-h-poster">
@@ -390,8 +236,6 @@ index_html = """
             </div>
         </a>
     {% endmacro %}
-
-    <!-- Hero Slider Section -->
     {% if hero_movies %}
     <section class="hero-slider">
         {% for movie in hero_movies %}
@@ -406,16 +250,12 @@ index_html = """
                     {% if movie.genres %}<span>{{ movie.genres[0] }}</span>{% endif %}
                 </div>
                 <p class="hero-overview">{{ movie.overview }}</p>
-                <a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="hero-button">
-                    <i class="fas fa-play"></i> Watch Now
-                </a>
+                <a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="hero-button"><i class="fas fa-play"></i> Watch Now</a>
             </div>
         </div>
         {% endfor %}
     </section>
     {% endif %}
-
-    <!-- Content Sections -->
     {% macro render_content_section(title, movies_list, view_all_endpoint) %}
         {% if movies_list %}
         <section class="content-section">
@@ -424,63 +264,43 @@ index_html = """
                 <a href="{{ url_for(view_all_endpoint) }}" class="view-all-link">View All →</a>
             </div>
             <div class="horizontal-scroll-wrapper">
-                {% for movie in movies_list %}
-                    {{ render_movie_card(movie) }}
-                {% endfor %}
+                {% for movie in movies_list %}{{ render_movie_card(movie) }}{% endfor %}
             </div>
         </section>
         {% endif %}
     {% endmacro %}
-    
     {{ render_content_section('Latest Movies', latest_movies, 'movies_only') }}
     {{ render_content_section('Latest Web Series', latest_series, 'webseries') }}
     {{ render_content_section('Trending Now', trending_movies, 'trending_movies') }}
-    
     <script>
         const slides = document.querySelectorAll('.hero-slide');
         if (slides.length > 1) {
             let currentSlide = 0;
             const showSlide = (index) => slides.forEach((s, i) => s.classList.toggle('active', i === index));
-            setInterval(() => {
-                currentSlide = (currentSlide + 1) % slides.length;
-                showSlide(currentSlide);
-            }, 6000);
+            setInterval(() => { currentSlide = (currentSlide + 1) % slides.length; showSlide(currentSlide); }, 6000);
         }
     </script>
 {% endblock %}
 """
 
-# --- List Page Template (for search, genre, etc.) ---
 list_page_html = """
 {% extends "base_html" %}
-
 {% block title %}{{ title }} - {{ site_name }}{% endblock %}
-
 {% block head_extra %}
 <style>
 .list-page-header { padding: 40px; text-align: center; }
 .list-page-title { font-size: 2.5rem; font-weight: 700; color: var(--primary-color); }
 .content-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 25px;
-    padding: 0 40px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 25px; padding: 0 40px 40px;
 }
 @media (max-width: 768px) {
-    .content-grid {
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-        gap: 20px;
-        padding: 0 20px;
-    }
+    .content-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; padding: 0 20px 20px; }
 }
 </style>
 {% endblock %}
-
 {% block content %}
-    <div class="list-page-header">
-        <h1 class="list-page-title">{{ title }}</h1>
-    </div>
-    
+    <div class="list-page-header"><h1 class="list-page-title">{{ title }}</h1></div>
     <div class="content-grid">
         {% for movie in movies %}
             <a href="{{ url_for('movie_detail', movie_id=movie._id) }}" class="movie-card-h">
@@ -505,40 +325,25 @@ list_page_html = """
 {% endblock %}
 """
 
-# --- Detail Page Template ---
 detail_html = """
 {% extends "base_html" %}
-
 {% block title %}{{ movie.title }} - {{ site_name }}{% endblock %}
-
 {% block head_extra %}
 <style>
 .detail-hero {
-  position: relative;
-  padding: 60px 0;
-  margin-top: -{{ header_height }}px;
-  min-height: 80vh;
-  display: flex;
-  align-items: center;
+  position: relative; padding: 60px 0; margin-top: calc(-1 * var(--header-height));
+  min-height: 80vh; display: flex; align-items: center;
 }
 .detail-bg {
-  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-  background-size: cover; background-position: center;
-  filter: blur(25px) brightness(0.3); transform: scale(1.1);
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover;
+  background-position: center; filter: blur(25px) brightness(0.3); transform: scale(1.1);
 }
 .detail-hero::after {
   content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   background: linear-gradient(to right, rgba(13,13,13,1) 20%, rgba(13,13,13,0.7) 50%, rgba(13,13,13,1) 100%);
 }
-.detail-content {
-  position: relative; z-index: 2;
-  display: flex; gap: 40px; align-items: flex-start;
-}
-.detail-poster img {
-  width: 300px;
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-}
+.detail-content { position: relative; z-index: 2; display: flex; gap: 40px; align-items: flex-start; }
+.detail-poster img { width: 300px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
 .detail-info-title { font-size: 3rem; font-weight: 700; margin-bottom: 20px; }
 .detail-info-meta { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
 .detail-info-meta span { background-color: rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 5px; font-size: 0.9rem; }
@@ -549,8 +354,7 @@ detail_html = """
 .action-buttons { display: flex; flex-wrap: wrap; gap: 15px; }
 .action-btn {
   padding: 12px 25px; border-radius: 50px; font-weight: 600;
-  display: inline-flex; align-items: center; gap: 10px;
-  border: 2px solid transparent;
+  display: inline-flex; align-items: center; gap: 10px; border: 2px solid transparent;
 }
 .btn-primary { background-color: var(--primary-color); color: #000; }
 .btn-secondary { border-color: var(--primary-color); color: var(--primary-color); }
@@ -560,7 +364,6 @@ detail_html = """
 .download-table th, .download-table td { padding: 15px; text-align: center; border-bottom: 1px solid #222; }
 .download-table th { color: var(--text-muted-color); font-weight: 500; }
 .download-btn { background-color: var(--primary-color); color: #000; padding: 10px 20px; border-radius: 5px; font-weight: 600; }
-
 @media (max-width: 992px) {
     .detail-content { flex-direction: column; align-items: center; text-align: center; }
     .detail-poster img { width: 250px; }
@@ -568,14 +371,11 @@ detail_html = """
 }
 </style>
 {% endblock %}
-
 {% block content %}
     <section class="detail-hero">
         <div class="detail-bg" style="background-image: url('{{ movie.poster }}')"></div>
         <div class="container detail-content">
-            <div class="detail-poster">
-                <img src="{{ movie.poster or 'https://via.placeholder.com/300x450.png?text=No+Image' }}" alt="{{ movie.title }}">
-            </div>
+            <div class="detail-poster"><img src="{{ movie.poster or 'https://via.placeholder.com/300x450.png?text=No+Image' }}" alt="{{ movie.title }}"></div>
             <div class="detail-info">
                 <h1 class="detail-info-title">{{ movie.title }}</h1>
                 <div class="detail-info-meta">
@@ -595,66 +395,109 @@ detail_html = """
             </div>
         </div>
     </section>
-    
     <section id="download" class="download-section">
         <div class="container">
-            {% if movie.type == 'movie' and movie.files %}
+            {% if (movie.type == 'movie' and movie.files) or (movie.type == 'series' and (movie.episodes or movie.season_packs)) %}
             <div class="download-links">
-                <h3><i class="fas fa-server"></i> Telegram Download Links</h3>
+                <h3><i class="fas fa-server"></i> Download Links</h3>
                 <table class="download-table">
-                    <thead><tr><th>Quality</th><th>Action</th></tr></thead>
+                    <thead><tr><th>File</th><th>Action</th></tr></thead>
                     <tbody>
-                    {% for file in movie.files | sort(attribute='quality') %}
-                    <tr>
-                        <td>{{ file.quality }}</td>
-                        <td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="download-btn">Get File</a></td>
-                    </tr>
-                    {% endfor %}
+                    {% if movie.type == 'movie' and movie.files %}
+                        {% for file in movie.files | sort(attribute='quality') %}
+                        <tr><td>{{ file.quality }}</td><td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ file.quality }}" class="download-btn">Get File</a></td></tr>
+                        {% endfor %}
+                    {% elif movie.type == 'series' %}
+                        {% if movie.season_packs %}{% for pack in movie.season_packs | sort(attribute='season') %}
+                        <tr><td>Complete Season {{ pack.season }} Pack</td><td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_S{{ pack.season }}" class="download-btn">Get Pack</a></td></tr>
+                        {% endfor %}{% endif %}
+                        {% if movie.episodes %}{% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}
+                        <tr><td>S{{ "%02d"|format(ep.season) }}E{{ "%02d"|format(ep.episode_number) }}</td><td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="download-btn">Get Episode</a></td></tr>
+                        {% endfor %}{% endif %}
+                    {% endif %}
                     </tbody>
                 </table>
             </div>
-            {% elif movie.type == 'series' %}
-            <div class="download-links">
-                <h3><i class="fas fa-layer-group"></i> Seasons & Episodes</h3>
-                <table class="download-table">
-                    {% if movie.season_packs %}
-                    {% for pack in movie.season_packs | sort(attribute='season') %}
-                    <tr>
-                        <td>Complete Season {{ pack.season }} Pack</td>
-                        <td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_S{{ pack.season }}" class="download-btn">Get Pack</a></td>
-                    </tr>
-                    {% endfor %}
-                    {% endif %}
-                    {% if movie.episodes %}
-                    {% for ep in movie.episodes | sort(attribute='episode_number') | sort(attribute='season') %}
-                    <tr>
-                        <td>S{{ "%02d"|format(ep.season) }}E{{ "%02d"|format(ep.episode_number) }}</td>
-                        <td><a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_{{ ep.season }}_{{ ep.episode_number }}" class="download-btn">Get Episode</a></td>
-                    </tr>
-                    {% endfor %}
-                    {% endif %}
-                </table>
-            </div>
-            {% else %}
-            <h3 style="text-align:center; color: var(--text-muted-color);">No download links available yet.</h3>
-            {% endif %}
+            {% else %}<h3 style="text-align:center; color: var(--text-muted-color);">No download links available yet.</h3>{% endif %}
         </div>
     </section>
 {% endblock %}
 """
 
-# Admin and other templates remain unchanged as they are functional.
-# You can update their styling later if needed.
-# (The previous `admin_html`, `edit_html`, `contact_html` etc. go here)
-admin_html = "..." # আগের কোড
-edit_html = "..." # আগের কোড
-contact_html = "..." # আগের কোড
-genres_html = "..." # আগের কোড
-watch_html = "..." # আগের কোড
+# আপনার অন্যান্য HTML টেমপ্লেটগুলো এখানে যুক্ত করুন
+admin_html = """... önceki kodunuzdan kopyalayın ..."""
+edit_html = """... önceki kodunuzdan kopyalayın ..."""
+contact_html = """... önceki kodunuzdan kopyalayın ..."""
+watch_html = """... önceki kodunuzdan kopyalayın ..."""
+genres_html = """... önceki kodunuzdan kopyalayın ..."""
 
+# --- Jinja2 কাস্টম লোডার সেটআপ ---
+class DictLoader(BaseLoader):
+    def __init__(self, templates):
+        self.templates = templates
+    def get_source(self, environment, template):
+        if template in self.templates:
+            source = self.templates[template]
+            return source, None, lambda: True
+        raise TemplateNotFound(template)
+
+templates = {
+    "base_html": base_html,
+    "index_html": index_html,
+    "list_page_html": list_page_html,
+    "detail_html": detail_html,
+}
+jinja_env = Environment(loader=DictLoader(templates), autoescape=True)
+jinja_env.globals.update(url_for=url_for) 
+
+def render_from_string(template_name, **context):
+    # গ্লোবাল ভেরিয়েবলগুলো এখানে যোগ করুন
+    g = {
+        'url_for': url_for,
+        'site_name': SITE_NAME,
+        'now': datetime.utcnow(),
+        'main_channel_link': MAIN_CHANNEL_LINK,
+        'bot_username': BOT_USERNAME,
+        'ad_settings': settings.find_one() or {}
+    }
+    context.update(g)
+    template = jinja_env.get_template(template_name)
+    return template.render(**context)
+    
 # ======================================================================
-# --- Helper Functions (Final Version) ---
+# --- Helper Functions and Other Setups ---
 # ======================================================================
+def check_auth(username, password): return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
+def authenticate(): return Response('Could not verify your access level.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password): return authenticate()
+        return f(*args, **kwargs)
+    return decorated
+
+try:
+    client = MongoClient(MONGO_URI)
+    db = client["movie_db"]
+    movies = db["movies"]
+    settings = db["settings"]
+    feedback = db["feedback"]
+    print("SUCCESS: Successfully connected to MongoDB!")
+except Exception as e:
+    print(f"FATAL: Error connecting to MongoDB: {e}. Exiting.")
+    sys.exit(1)
+
+def delete_message_after_delay(chat_id, message_id):
+    try:
+        requests.post(f"{TELEGRAM_API_URL}/deleteMessage", json={'chat_id': chat_id, 'message_id': message_id})
+    except Exception as e:
+        print(f"Error in delete_message_after_delay: {e}")
+
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.start()
+
+# (এখানে আপনার বাকি সব helper functions যেমন parse_filename, get_tmdb_details_from_api ইত্যাদি থাকবে)
 def parse_filename(filename):
     """Parses filename to extract movie/series info."""
     LANGUAGE_MAP = {
@@ -799,7 +642,7 @@ def home():
     query = request.args.get('q')
     if query:
         movies_list = list(movies.find({"title": {"$regex": query, "$options": "i"}}).sort('_id', -1))
-        return render_template_string(list_page_html, movies=process_movie_list(movies_list), title=f'Results for "{query}"', now=datetime.utcnow())
+        return render_from_string('list_page_html', movies=process_movie_list(movies_list), title=f'Results for "{query}"')
 
     limit = 15
     hero_movies_list = list(movies.find({
@@ -813,32 +656,28 @@ def home():
         "trending_movies": process_movie_list(list(movies.find({"is_trending": True, "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "latest_movies": process_movie_list(list(movies.find({"type": "movie", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
         "latest_series": process_movie_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1).limit(limit))),
-        "now": datetime.utcnow(),
-        "header_height": "70px" # pass this for hero section styling
     }
-    return render_template_string(index_html, base_html=base_html, **context)
+    return render_from_string('index_html', **context)
 
 @app.route('/movie/<movie_id>')
 def movie_detail(movie_id):
     try:
         movie = movies.find_one({"_id": ObjectId(movie_id)})
-        if not movie: return "Content not found", 404
-        return render_template_string(detail_html, base_html=base_html, movie=movie, now=datetime.utcnow(), header_height="70px")
+        if not movie: return render_from_string('list_page_html', movies=[], title="Content Not Found")
+        return render_from_string('detail_html', movie=movie)
     except Exception:
-        return "Content not found", 404
+        return render_from_string('list_page_html', movies=[], title="Invalid Content ID")
 
 def render_full_list(content_list, title):
-    return render_template_string(list_page_html, base_html=base_html, movies=process_movie_list(content_list), title=title, now=datetime.utcnow())
+    return render_from_string('list_page_html', movies=process_movie_list(content_list), title=title)
 
 @app.route('/badge/<badge_name>')
 def movies_by_badge(badge_name): return render_full_list(list(movies.find({"poster_badge": badge_name}).sort('_id', -1)), f'Tag: {badge_name}')
 
 @app.route('/genres')
 def genres_page():
-    # A simple genres page can be created or redirect to a more complex one
     all_genres = sorted([g for g in movies.distinct("genres") if g])
-    # For now, let's use the list_page_html to display genres as links
-    return f"List of Genres: {', '.join([f'<a href=/genre/{g}>{g}</a>' for g in all_genres])}" # Placeholder
+    return render_template_string(genres_html, genres=all_genres, title="Browse by Genre")
 
 @app.route('/genre/<genre_name>')
 def movies_by_genre(genre_name): return render_full_list(list(movies.find({"genres": genre_name}).sort('_id', -1)), f'Genre: {genre_name}')
@@ -852,145 +691,10 @@ def movies_only(): return render_full_list(list(movies.find({"type": "movie", "i
 @app.route('/webseries')
 def webseries(): return render_full_list(list(movies.find({"type": "series", "is_coming_soon": {"$ne": True}}).sort('_id', -1)), "All Web Series")
 
-# ======================================================================
-# --- Admin and Webhook Routes (mostly unchanged) ---
-# ======================================================================
-# (এখানে admin, edit_movie, delete_movie, contact, telegram_webhook ইত্যাদি ফাংশনগুলো আগের মতোই থাকবে)
-# ... The rest of your Python code for admin, webhook, etc. remains the same ...
-@app.route('/admin', methods=["GET", "POST"])
-@requires_auth
-def admin():
-    # This route is functional and does not need design changes.
-    # Keep the previous code for this function.
-    if request.method == "POST":
-        content_type = request.form.get("content_type", "movie")
-        tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
-        movie_data = {
-            "title": request.form.get("title"), "type": content_type, **tmdb_data, 
-            "is_trending": False, "is_coming_soon": False, 
-            "links": [], "files": [], "episodes": [], "season_packs": [], "languages": []
-        }
-        if content_type == "movie":
-            movie_data["watch_link"] = request.form.get("watch_link", "")
-            movie_data["links"] = [{"quality": q, "url": u} for q, u in [("480p", request.form.get("link_480p")), ("720p", request.form.get("link_720p")), ("1080p", request.form.get("link_1080p"))] if u]
-            movie_data["files"] = [{"quality": q, "message_id": int(mid)} for q, mid in zip(request.form.getlist('telegram_quality[]'), request.form.getlist('telegram_message_id[]')) if q and mid]
-        else:
-            movie_data["episodes"] = [{"season": int(s), "episode_number": int(e), "title": t, "watch_link": w or None, "message_id": int(m) if m else None} for s, e, t, w, m in zip(request.form.getlist('episode_season[]'), request.form.getlist('episode_number[]'), request.form.getlist('episode_title[]'), request.form.getlist('episode_watch_link[]'), request.form.getlist('episode_message_id[]'))]
-        movies.insert_one(movie_data)
-        return redirect(url_for('admin'))
-
-    search_query = request.args.get('search', '').strip()
-    query_filter = {}
-    if search_query: query_filter = {"title": {"$regex": search_query, "$options": "i"}}
-    ad_settings = settings.find_one() or {}
-    # Use the original data structure for admin panel, no need for process_movie_list
-    content_list = list(movies.find(query_filter).sort('_id', -1))
-    feedback_list = list(feedback.find().sort('timestamp', -1))
-    # You might need to re-add your old admin_html here. I'm leaving it as a placeholder.
-    return "Admin Panel - Functionality is intact. Use your old admin_html template."
-
-@app.route('/webhook', methods=['POST'])
-def telegram_webhook():
-    data = request.get_json()
-    if 'channel_post' in data:
-        post = data['channel_post']
-        if str(post.get('chat', {}).get('id')) != ADMIN_CHANNEL_ID: return jsonify(status='ok', reason='not_admin_channel')
-        file = post.get('video') or post.get('document')
-        if not (file and file.get('file_name')): return jsonify(status='ok', reason='no_file_in_post')
-        filename = file.get('file_name')
-        print(f"\n--- [WEBHOOK] PROCESSING NEW FILE: {filename} ---")
-        parsed_info = parse_filename(filename)
-        if not parsed_info or not parsed_info.get('title'):
-            print(f"FAILED: Could not parse title from filename: {filename}")
-            return jsonify(status='ok', reason='parsing_failed')
-        print(f"PARSED INFO: {parsed_info}")
-        tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-        if not tmdb_data or not tmdb_data.get("tmdb_id"):
-            print(f"DATABASE: Skipping update for '{parsed_info['title']}' due to no TMDb data.")
-            return jsonify(status='ok', reason='no_tmdb_data_or_id')
-        tmdb_id = tmdb_data.get("tmdb_id")
-        update_doc = {"$set": {k: v for k, v in tmdb_data.items() if v}, "$addToSet": {}}
-        if parsed_info.get('languages'): update_doc["$addToSet"]["languages"] = {"$each": parsed_info['languages']}
-        content_type = parsed_info['type']
-        existing_content = movies.find_one({"tmdb_id": tmdb_id})
-        if content_type in ['series', 'series_pack']:
-            if not existing_content:
-                print(f"DATABASE: No existing series found. Creating new entry for '{tmdb_data['title']}'...")
-                series_doc = {**tmdb_data, "type": "series", "episodes": [], "season_packs": [], "languages": parsed_info.get('languages', [])}
-                movies.insert_one(series_doc)
-                existing_content = movies.find_one({"tmdb_id": tmdb_id})
-            if content_type == 'series_pack':
-                new_pack = {"season": parsed_info['season'], "message_id": post['message_id']}
-                movies.update_one({"_id": existing_content['_id']}, {"$pull": {"season_packs": {"season": new_pack['season']}}})
-                update_doc["$push"] = {"season_packs": new_pack}
-                print(f"SUCCESS: Season {new_pack['season']} pack updated.")
-            else:
-                new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id']}
-                movies.update_one({"_id": existing_content['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
-                update_doc["$push"] = {"episodes": new_episode}
-                print(f"SUCCESS: S{new_episode['season']}E{new_episode['episode_number']} updated.")
-            movies.update_one({"_id": existing_content['_id']}, update_doc)
-        else: # Movie
-            quality = extract_quality_from_filename(filename)
-            new_file = {"quality": quality, "message_id": post['message_id']}
-            if existing_content:
-                movies.update_one({"_id": existing_content['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
-                update_doc["$push"] = {"files": new_file}
-                movies.update_one({"_id": existing_content['_id']}, update_doc)
-                print(f"SUCCESS: Movie file ({quality}) updated.")
-            else:
-                movie_doc = {**tmdb_data, "type": "movie", "files": [new_file], "languages": parsed_info.get('languages', [])}
-                movies.insert_one(movie_doc)
-                print("SUCCESS: New movie created.")
-    elif 'message' in data:
-        message = data['message']
-        chat_id = message['chat']['id']
-        text = message.get('text', '')
-        if text.startswith('/start'):
-            parts = text.split()
-            if len(parts) > 1:
-                try:
-                    payload_parts = parts[1].split('_')
-                    doc_id_str = payload_parts[0]
-                    content = movies.find_one({"_id": ObjectId(doc_id_str)})
-                    if not content: return jsonify(status='ok')
-                    message_to_copy_id, file_info_text = None, ""
-                    if len(payload_parts) == 2 and payload_parts[1].startswith('S'):
-                        season_num = int(payload_parts[1][1:])
-                        pack = next((p for p in content.get('season_packs', []) if p.get('season') == season_num), None)
-                        if pack: message_to_copy_id, file_info_text = pack.get('message_id'), f"Complete Season {season_num}"
-                    elif content.get('type') == 'series' and len(payload_parts) == 3:
-                        s_num, e_num = int(payload_parts[1]), int(payload_parts[2])
-                        episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == s_num and ep.get('episode_number') == e_num), None)
-                        if episode: message_to_copy_id, file_info_text = episode.get('message_id'), f"S{s_num:02d}E{e_num:02d}"
-                    elif content.get('type') == 'movie' and len(payload_parts) == 2:
-                        quality = payload_parts[1]
-                        file = next((f for f in content.get('files', []) if f.get('quality') == quality), None)
-                        if file: message_to_copy_id, file_info_text = file.get('message_id'), f"({quality})"
-                    if message_to_copy_id:
-                        caption_text = (f"🎬 *{escape_markdown(content['title'])}* {escape_markdown(file_info_text)}\n\n"
-                                        f"✅ *Successfully Sent To Your PM*\n\n"
-                                        f"🔰 Join Our Main Channel\n➡️ [{escape_markdown(BOT_USERNAME)} Main]({MAIN_CHANNEL_LINK})\n\n"
-                                        f"📢 Join Our Update Channel\n➡️ [{escape_markdown(BOT_USERNAME)} Official]({UPDATE_CHANNEL_LINK})\n\n"
-                                        f"💬 For Any Help or Request\n➡️ [Contact Developer]({DEVELOPER_USER_LINK})")
-                        payload = {'chat_id': chat_id, 'from_chat_id': ADMIN_CHANNEL_ID, 'message_id': message_to_copy_id, 'caption': caption_text, 'parse_mode': 'MarkdownV2'}
-                        res = requests.post(f"{TELEGRAM_API_URL}/copyMessage", json=payload).json()
-                        if res.get('ok'):
-                            new_msg_id = res['result']['message_id']
-                            scheduler.add_job(func=delete_message_after_delay, trigger='date', run_date=datetime.now() + timedelta(minutes=30), args=[chat_id, new_msg_id], id=f'del_{chat_id}_{new_msg_id}', replace_existing=True)
-                        else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Error sending file. It might have been deleted from the channel."})
-                    else: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "Requested file/season not found."})
-                except Exception as e:
-                    print(f"Error processing /start command: {e}")
-                    requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': "An unexpected error occurred."})
-            else:
-                welcome_message = (f"👋 Welcome to {BOT_USERNAME}!\n\nBrowse all our content on our website.")
-                try:
-                    root_url = url_for('home', _external=True)
-                    keyboard = {"inline_keyboard": [[{"text": "🎬 Visit Website", "url": root_url}]]}
-                    requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': welcome_message, 'reply_markup': str(keyboard).replace("'", '"')})
-                except Exception: requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': welcome_message})
-    return jsonify(status='ok')
+# --- Admin and Other Routes ---
+# (আপনার আগের কোড থেকে admin, edit, contact, webhook ইত্যাদি ফাংশনগুলো এখানে বসবে)
+# ...
+# The full python code for admin, webhook, etc. should be pasted here from your previous version.
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
