@@ -114,9 +114,39 @@ index_html = """
   body { font-family: 'Roboto', sans-serif; background-color: var(--netflix-black); color: var(--text-light); overflow-x: hidden; }
   a { text-decoration: none; color: inherit; }
   ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #222; } ::-webkit-scrollbar-thumb { background: #555; } ::-webkit-scrollbar-thumb:hover { background: var(--netflix-red); }
-  .main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 15px 50px; display: flex; justify-content: space-between; align-items: center; z-index: 100; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
+  .main-nav { position: fixed; top: 0; left: 0; width: 100%; padding: 15px 50px; display: flex; align-items: center; z-index: 100; transition: background-color 0.3s ease; background: linear-gradient(to bottom, rgba(0,0,0,0.8) 10%, rgba(0,0,0,0)); }
   .main-nav.scrolled { background-color: var(--netflix-black); }
   .logo { font-family: 'Bebas Neue', sans-serif; font-size: 32px; color: var(--netflix-red); font-weight: 700; letter-spacing: 1px; }
+
+  /* ================================== */
+  /* --- নতুন মেনুবারের জন্য CSS কোড --- */
+  /* ================================== */
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 25px;
+    margin-left: 40px;
+  }
+  .nav-links a {
+    color: var(--text-dark);
+    font-weight: 500;
+    font-size: 0.95rem;
+    transition: color 0.3s ease;
+  }
+  .nav-links a:hover {
+    color: var(--text-light);
+  }
+  .nav-links a.active {
+    color: var(--text-light);
+    font-weight: 700;
+  }
+  .search-form {
+    margin-left: auto; /* এই লাইনটি সার্চ বারকে ডানদিকে ঠেলে দেবে */
+  }
+  /* ================================== */
+  /* --- CSS কোড শেষ --- */
+  /* ================================== */
+
   .search-input { background-color: rgba(0,0,0,0.7); border: 1px solid #777; color: var(--text-light); padding: 8px 15px; border-radius: 4px; transition: width 0.3s ease, background-color 0.3s ease; width: 250px; }
   .search-input:focus { background-color: rgba(0,0,0,0.9); border-color: var(--text-light); outline: none; }
   .tags-section { padding: 80px 50px 20px 50px; background-color: var(--netflix-black); }
@@ -171,7 +201,13 @@ index_html = """
   .telegram-join-button { display: inline-flex; align-items: center; gap: 10px; background-color: #2AABEE; color: white; padding: 12px 30px; border-radius: 50px; font-size: 1.1rem; font-weight: 700; transition: all 0.2s ease; }
   .telegram-join-button:hover { transform: scale(1.05); background-color: #1e96d1; } .telegram-join-button i { font-size: 1.3rem; }
   @media (max-width: 768px) {
-      body { padding-bottom: var(--nav-height); } .main-nav { padding: 10px 15px; } main { padding: 0 15px; } .logo { font-size: 24px; } .search-input { width: 150px; }
+      body { padding-bottom: var(--nav-height); }
+      .main-nav { padding: 10px 15px; }
+      .nav-links { display: none; } /* --- মোবাইল ভিউতে নতুন মেনুবার হাইড করা হলো --- */
+      main { padding: 0 15px; }
+      .logo { font-size: 24px; }
+      .search-form { margin-left: auto; } /* --- মোবাইল ভিউতেও সার্চ বারকে ডানে রাখা হলো --- */
+      .search-input { width: 150px; }
       .tags-section { padding: 80px 15px 15px 15px; } .tag-link { padding: 6px 15px; font-size: 0.8rem; } .hero-section { height: 60vh; margin: 0 -15px;}
       .hero-slide { padding: 15px; align-items: center; } .hero-content { max-width: 90%; text-align: center; } .hero-title { font-size: 2.8rem; } .hero-overview { display: none; }
       .category-section { margin: 25px 0; } .category-title { font-size: 1.2rem; }
@@ -185,7 +221,27 @@ index_html = """
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css">
 </head>
 <body>
-<header class="main-nav"><a href="{{ url_for('home') }}" class="logo">MovieZone</a><form method="GET" action="/" class="search-form"><input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" /></form></header>
+
+<!-- ============================================== -->
+<!-- --- HTML হেডার অংশে নতুন মেনুবার যুক্ত করা হলো --- -->
+<!-- ============================================== -->
+<header class="main-nav">
+    <a href="{{ url_for('home') }}" class="logo">MovieZone</a>
+    
+    <div class="nav-links">
+        <a href="{{ url_for('home') }}" class="{% if request.endpoint == 'home' or not is_full_page_list %}active{% endif %}">Home</a>
+        <a href="{{ url_for('movies_only') }}" class="{% if request.endpoint == 'movies_only' %}active{% endif %}">Movies</a>
+        <a href="{{ url_for('webseries') }}" class="{% if request.endpoint == 'webseries' %}active{% endif %}">Web Series</a>
+    </div>
+
+    <form method="GET" action="/" class="search-form">
+        <input type="search" name="q" class="search-input" placeholder="Search..." value="{{ query|default('') }}" />
+    </form>
+</header>
+<!-- ============================================== -->
+<!-- --- HTML পরিবর্তন শেষ --- -->
+<!-- ============================================== -->
+
 <main>
   {% macro render_movie_card(m) %}
     <a href="{{ url_for('movie_detail', movie_id=m._id) }}" class="movie-card">
