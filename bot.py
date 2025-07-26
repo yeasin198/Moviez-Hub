@@ -100,6 +100,7 @@ index_html = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<meta name="monetag" content="e8d2a196c0c31a60d1ad35f7386aeecd">
 <script type='text/javascript' src='//pl27112807.profitableratecpm.com/4f/f7/e2/4ff7e25441144507c3de68c4582b7562.js'></script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
