@@ -45,6 +45,7 @@ if missing_vars:
 # --- অ্যাপ্লিকেশন সেটআপ এবং অন্যান্য ফাংশন ---
 # ======================================================================
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+PLACEHOLDER_POSTER = "https://via.placeholder.com/400x600.png?text=Poster+Not+Found" # প্লেসহোল্ডার পোস্টার
 app = Flask(__name__)
 
 def check_auth(username, password):
@@ -97,7 +98,7 @@ def escape_markdown(text: str) -> str:
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 # ======================================================================
-# --- HTML টেমপ্লেট ---
+# --- HTML টেমপ্লেট (অপরিবর্তিত) ---
 # ======================================================================
 
 index_html = """
@@ -280,7 +281,6 @@ index_html = """
 </body>
 </html>
 """
-
 detail_html = """
 <!DOCTYPE html>
 <html lang="en">
@@ -432,7 +432,6 @@ function copyToClipboard(text) { navigator.clipboard.writeText(text).then(() => 
 </body>
 </html>
 """
-
 genres_html = """
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" /><title>{{ title }} - MovieZone</title>
@@ -454,7 +453,6 @@ genres_html = """
 {% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
 </body></html>
 """
-
 watch_html = """
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Watching: {{ title }}</title>
@@ -464,7 +462,6 @@ watch_html = """
 {% if ad_settings.social_bar_code %}{{ ad_settings.social_bar_code|safe }}{% endif %}
 </body></html>
 """
-
 admin_html = """
 <!DOCTYPE html>
 <html><head><title>Admin Panel - MovieZone</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
@@ -542,7 +539,6 @@ hr.section-divider { border: 0; height: 2px; background-color: var(--light-gray)
   </script>
 </body></html>
 """
-
 edit_html = """
 <!DOCTYPE html>
 <html><head><title>Edit Content - MovieZone</title><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
@@ -630,7 +626,6 @@ button[type="submit"], .add-btn { background: var(--netflix-red); color: white; 
   </script>
 </body></html>
 """
-
 contact_html = """
 <!DOCTYPE html>
 <html lang="bn"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Contact Us / Report - MovieZone</title><style>
@@ -651,7 +646,7 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 """
 
 # ======================================================================
-# --- Helper Functions (Final Version) ---
+# --- Helper Functions (অপরিবর্তিত) ---
 # ======================================================================
 
 def parse_filename(filename):
@@ -796,7 +791,7 @@ def process_movie_list(movie_list):
     return [{**item, '_id': str(item['_id'])} for item in movie_list]
 
 # ======================================================================
-# --- Main Flask Routes ---
+# --- Main Flask Routes (অপরিবর্তিত) ---
 # ======================================================================
 
 @app.route('/')
@@ -865,25 +860,30 @@ def coming_soon(): return render_full_list(list(movies.find({"is_coming_soon": T
 def recently_added_all(): return render_full_list(list(movies.find({"is_coming_soon": {"$ne": True}}).sort('_id', -1)), "Recently Added")
 
 # ======================================================================
-# --- Admin and Webhook Routes ---
+# --- Admin and Webhook Routes (অপরিবর্তিত) ---
 # ======================================================================
 @app.route('/admin', methods=["GET", "POST"])
 @requires_auth
 def admin():
     if request.method == "POST":
         content_type = request.form.get("content_type", "movie")
-        tmdb_data = get_tmdb_details_from_api(request.form.get("title"), content_type) or {}
+        # ম্যানুয়াল অ্যাডমিন এন্ট্রি সরল করা হয়েছে, কারণ মূল কাজ এখন ওয়েব-হুক দিয়ে হচ্ছে
         movie_data = {
-            "title": request.form.get("title"), "type": content_type, **tmdb_data, 
-            "is_trending": False, "is_coming_soon": False, 
+            "title": request.form.get("title"),
+            "type": content_type,
+            "poster": request.form.get("poster") or PLACEHOLDER_POSTER,
+            "overview": request.form.get("overview", ""),
+            "is_trending": False,
+            "is_coming_soon": False,
             "links": [], "files": [], "episodes": [], "season_packs": [], "languages": []
         }
         if content_type == "movie":
-            # ... (Movie handling code as before)
+            movie_data['watch_link'] = request.form.get("watch_link")
+            # অন্যান্য লিঙ্ক ও ফাইল যোগ করার লজিক এখানে যুক্ত করা যেতে পারে
+        else: # series
+             # এপিসোড যোগ করার লজিক এখানে যুক্ত করা যেতে পারে
             pass
-        else:
-            # ... (Series handling code as before)
-            pass
+        
         movies.insert_one(movie_data)
         return redirect(url_for('admin'))
 
@@ -922,18 +922,25 @@ def edit_movie(movie_id):
             "title": request.form.get("title"), "type": content_type,
             "is_trending": request.form.get("is_trending") == "true",
             "is_coming_soon": request.form.get("is_coming_soon") == "true",
-            "poster": request.form.get("poster", "").strip(), "overview": request.form.get("overview", "").strip(),
+            "poster": request.form.get("poster", "").strip() or PLACEHOLDER_POSTER, 
+            "overview": request.form.get("overview", "").strip(),
             "genres": [g.strip() for g in request.form.get("genres", "").split(',') if g.strip()],
             "languages": [lang.strip() for lang in request.form.get("languages", "").split(',') if lang.strip()],
             "poster_badge": request.form.get("poster_badge", "").strip() or None
         }
         
+        # TMDb থেকে আনা তথ্য যেন ওভাররাইট না হয়, তাই এই অংশগুলো Edit প্যানেল থেকে আসা তথ্যের সাথে আপডেট হবে
+        if not movie_obj.get('tmdb_id'): # যদি এটি একটি প্লেসহোল্ডার এন্ট্রি হয়
+            tmdb_details = get_tmdb_details_from_api(update_data['title'], content_type)
+            if tmdb_details:
+                update_data.update(tmdb_details)
+
         if content_type == "movie":
             update_data["watch_link"] = request.form.get("watch_link", "")
             update_data["links"] = [{"quality": q, "url": u} for q, u in [("480p", request.form.get("link_480p")), ("720p", request.form.get("link_720p")), ("1080p", request.form.get("link_1080p"))] if u]
             update_data["files"] = [{"quality": q, "message_id": int(mid)} for q, mid in zip(request.form.getlist('telegram_quality[]'), request.form.getlist('telegram_message_id[]')) if q and mid]
             movies.update_one({"_id": obj_id}, {"$set": update_data, "$unset": {"episodes": "", "season_packs": ""}})
-        else:
+        else: # series
             update_data["episodes"] = [{"season": int(s), "episode_number": int(e), "title": t, "watch_link": w or None, "message_id": int(m) if m else None} for s, e, t, w, m in zip(request.form.getlist('episode_season[]'), request.form.getlist('episode_number[]'), request.form.getlist('episode_title[]'), request.form.getlist('episode_watch_link[]'), request.form.getlist('episode_message_id[]'))]
             update_data["season_packs"] = [{"season": int(s), "message_id": int(mid)} for s, mid in zip(request.form.getlist('pack_season[]'), request.form.getlist('pack_message_id[]')) if s and mid]
             movies.update_one({"_id": obj_id}, {"$set": update_data, "$unset": {"links": "", "watch_link": "", "files": ""}})
@@ -983,6 +990,9 @@ def delete_feedback(feedback_id):
     return redirect(url_for('admin'))
 
 
+# ======================================================================
+# --- *** সম্পূর্ণ নতুন এবং উন্নত Webhook ফাংশন *** ---
+# ======================================================================
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
@@ -1005,54 +1015,96 @@ def telegram_webhook():
         
         print(f"PARSED INFO: {parsed_info}")
 
+        # ধাপ ১: TMDb থেকে তথ্য আনার চেষ্টা করুন
         tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
-        if not tmdb_data or not tmdb_data.get("tmdb_id"):
-            print(f"DATABASE: Skipping update for '{parsed_info['title']}' due to no TMDb data.")
-            return jsonify(status='ok', reason='no_tmdb_data_or_id')
-        
-        tmdb_id = tmdb_data.get("tmdb_id")
-        update_doc = {"$set": {k: v for k, v in tmdb_data.items() if v}, "$addToSet": {}}
-        if parsed_info.get('languages'):
-            update_doc["$addToSet"]["languages"] = {"$each": parsed_info['languages']}
-        
-        content_type = parsed_info['type']
-        existing_content = movies.find_one({"tmdb_id": tmdb_id})
 
-        if content_type in ['series', 'series_pack']:
-            if not existing_content:
-                print(f"DATABASE: No existing series found. Creating new entry for '{tmdb_data['title']}'...")
-                series_doc = {**tmdb_data, "type": "series", "episodes": [], "season_packs": [], "languages": parsed_info.get('languages', [])}
-                movies.insert_one(series_doc)
-                existing_content = movies.find_one({"tmdb_id": tmdb_id}) # Re-fetch the newly created doc
+        # ধাপ ২: TMDb থেকে তথ্য পাওয়া যাক বা না যাক, ডাটাবেসে কাজ করুন
+        
+        # --- কেস ১: TMDb থেকে সফলভাবে তথ্য পাওয়া গেছে ---
+        if tmdb_data and tmdb_data.get("tmdb_id"):
+            print(f"INFO: TMDb data found for '{tmdb_data['title']}'. Processing with full details.")
+            tmdb_id = tmdb_data.get("tmdb_id")
+            existing_content = movies.find_one({"tmdb_id": tmdb_id})
             
-            if content_type == 'series_pack':
+            update_doc = {"$set": tmdb_data}
+            if parsed_info.get('languages'):
+                update_doc["$addToSet"] = {"languages": {"$each": parsed_info['languages']}}
+
+            # যদি কন্টেন্ট আগে থেকে না থাকে
+            if not existing_content:
+                base_doc = {
+                    **tmdb_data,
+                    "type": "movie" if parsed_info['type'] == 'movie' else "series",
+                    "languages": parsed_info.get('languages', []), "episodes": [], "season_packs": [], "files": [],
+                    "is_trending": False, "is_coming_soon": False
+                }
+                movies.insert_one(base_doc)
+                existing_content = movies.find_one({"tmdb_id": tmdb_id}) # নতুন ডকুমেন্টটি আবার লোড করুন
+            
+            # নতুন ফাইল/এপিসোড/প্যাক যোগ করুন
+            if parsed_info['type'] == 'movie':
+                quality = re.search(r'(\d{3,4}p)', filename, re.I).group(1) if re.search(r'(\d{3,4}p)', filename, re.I) else "HD"
+                new_file = {"quality": quality, "message_id": post['message_id']}
+                movies.update_one({"_id": existing_content['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
+                update_doc["$push"] = {"files": new_file}
+            elif parsed_info['type'] == 'series_pack':
                 new_pack = {"season": parsed_info['season'], "message_id": post['message_id']}
                 movies.update_one({"_id": existing_content['_id']}, {"$pull": {"season_packs": {"season": new_pack['season']}}})
                 update_doc["$push"] = {"season_packs": new_pack}
-                print(f"SUCCESS: Season {new_pack['season']} pack updated.")
-            else: # Episodic
+            elif parsed_info['type'] == 'series':
                 new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id']}
                 movies.update_one({"_id": existing_content['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
                 update_doc["$push"] = {"episodes": new_episode}
-                print(f"SUCCESS: S{new_episode['season']}E{new_episode['episode_number']} updated.")
-
+            
             movies.update_one({"_id": existing_content['_id']}, update_doc)
+            print(f"SUCCESS: Full entry for '{tmdb_data['title']}' has been created/updated.")
 
-        else: # Movie
-            quality_match = re.search(r'(\d{3,4}p)', filename, re.I)
-            quality = quality_match.group(1) if quality_match else "HD"
-            new_file = {"quality": quality, "message_id": post['message_id']}
+        # --- কেস ২: TMDb থেকে কোনো তথ্য পাওয়া যায়নি, কিন্তু একটি প্লেসহোল্ডার এন্ট্রি তৈরি করতে হবে ---
+        else:
+            print(f"WARNING: TMDb data not found for '{parsed_info['title']}'. Creating a placeholder entry.")
+            
+            # শিরোনাম দিয়ে কোনো প্লেসহোল্ডার এন্ট্রি আগে থেকেই আছে কিনা দেখুন (যেখানে tmdb_id নেই)
+            existing_placeholder = movies.find_one({
+                "title": {"$regex": f"^{re.escape(parsed_info['title'])}$", "$options": "i"}, 
+                "tmdb_id": None
+            })
 
-            if existing_content:
-                movies.update_one({"_id": existing_content['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
-                update_doc["$push"] = {"files": new_file}
-                movies.update_one({"_id": existing_content['_id']}, update_doc)
-                print(f"SUCCESS: Movie file ({quality}) updated.")
-            else:
-                movie_doc = {**tmdb_data, "type": "movie", "files": [new_file], "languages": parsed_info.get('languages', [])}
-                movies.insert_one(movie_doc)
-                print("SUCCESS: New movie created.")
+            # যদি কোনো প্লেসহোল্ডার না থাকে, একটি নতুন তৈরি করুন
+            if not existing_placeholder:
+                shell_doc = {
+                    "title": parsed_info['title'],
+                    "type": "movie" if parsed_info['type'] == 'movie' else "series",
+                    "poster": PLACEHOLDER_POSTER,
+                    "overview": "Details for this content are not yet available. It will be updated soon.",
+                    "release_date": None, "genres": [], "vote_average": 0, "trailer_key": None, "tmdb_id": None,
+                    "languages": parsed_info.get('languages', []), "episodes": [], "season_packs": [], "files": [],
+                    "is_trending": False, "is_coming_soon": False
+                }
+                movies.insert_one(shell_doc)
+                existing_placeholder = movies.find_one({"_id": shell_doc['_id']}) # নতুন ডকুমেন্টটি লোড করুন
+            
+            # এখন প্লেসহোল্ডার এন্ট্রিতে ফাইল/এপিসোড যোগ করুন
+            update_op = {}
+            if parsed_info['type'] == 'movie':
+                quality = re.search(r'(\d{3,4}p)', filename, re.I).group(1) if re.search(r'(\d{3,4}p)', filename, re.I) else "HD"
+                new_file = {"quality": quality, "message_id": post['message_id']}
+                movies.update_one({"_id": existing_placeholder['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
+                update_op["$push"] = {"files": new_file}
+            elif parsed_info['type'] == 'series_pack':
+                new_pack = {"season": parsed_info['season'], "message_id": post['message_id']}
+                movies.update_one({"_id": existing_placeholder['_id']}, {"$pull": {"season_packs": {"season": new_pack['season']}}})
+                update_op["$push"] = {"season_packs": new_pack}
+            elif parsed_info['type'] == 'series':
+                new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id']}
+                movies.update_one({"_id": existing_placeholder['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
+                update_op["$push"] = {"episodes": new_episode}
 
+            if update_op:
+                movies.update_one({"_id": existing_placeholder['_id']}, update_op)
+            print(f"SUCCESS: Placeholder entry for '{parsed_info['title']}' has been created/updated.")
+
+
+    # --- /start কমান্ড হ্যান্ডলিং (অপরিবর্তিত) ---
     elif 'message' in data:
         message = data['message']
         chat_id = message['chat']['id']
@@ -1119,6 +1171,7 @@ def telegram_webhook():
                     requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': welcome_message, 'reply_markup': str(keyboard).replace("'", '"')})
                 except Exception:
                      requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': welcome_message})
+
     return jsonify(status='ok')
 
 
