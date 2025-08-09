@@ -103,11 +103,12 @@ def escape_markdown(text: str) -> str:
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 # ======================================================================
-# --- নোটিফিকেশন পাঠানোর ফাংশন ---
+# --- নোটিফিকেশন পাঠানোর ফাংশন (ওয়েবসাইট-কেন্দ্রিক) ---
 # ======================================================================
 def send_notification_to_channel(movie_data):
     """
     একটি নতুন কন্টেন্ট যোগ হলে বা ম্যানুয়ালি ট্রিগার করা হলে নোটিফিকেশন চ্যানেলে পোস্ট পাঠায়।
+    এই ফাংশনটি ব্যবহারকারীকে শুধুমাত্র ওয়েবসাইটে পাঠায়।
     """
     if not NOTIFICATION_CHANNEL_ID:
         print("INFO: NOTIFICATION_CHANNEL_ID is not set. Skipping notification.")
@@ -120,21 +121,41 @@ def send_notification_to_channel(movie_data):
 
         title = movie_data.get('title', 'N/A')
         poster_url = movie_data.get('poster')
+        is_coming_soon = movie_data.get('is_coming_soon', False)
 
         # পোস্টার না থাকলে বা প্লেসহোল্ডার হলে নোটিফিকেশন পাঠাবে না
         if not poster_url or not poster_url.startswith('http') or poster_url == PLACEHOLDER_POSTER:
             print(f"WARNING: Invalid or missing poster for '{title}'. Skipping photo notification.")
             return
 
-        # পোস্টের ক্যাপশন তৈরি
-        caption = f"✨ **New Content Added!** ✨\n\n🎬 **{title}**\n\n👇 Click the button below to watch or download now!"
+        # "Coming Soon" কন্টেন্টের জন্য আলাদা ক্যাপশন
+        if is_coming_soon:
+            caption = (
+                f"⏳ **Coming Soon!** ⏳\n\n"
+                f"🎬 **{title}**\n\n"
+                f"Get ready! This content will be available on our platform very soon. Stay tuned!"
+            )
+            keyboard = {} # কোনো বাটন থাকবে না
+        else:
+            # সাধারণ কন্টেন্টের জন্য বিস্তারিত ক্যাপশন
+            year = movie_data.get('release_date', '----').split('-')[0]
+            genres = ", ".join(movie_data.get('genres', []))
+            rating = movie_data.get('vote_average', 0)
+            
+            caption = f"✨ **New Content Added!** ✨\n\n🎬 **{title} ({year})**\n"
+            if genres:
+                caption += f"🎭 **Genre:** {genres}\n"
+            if rating > 0:
+                caption += f"⭐ **Rating:** {rating:.1f}/10\n"
+            
+            caption += "\n👇 Click the button below to watch or download now from our website!"
 
-        # ইনলাইন বাটন তৈরি
-        keyboard = {
-            "inline_keyboard": [
-                [{"text": "➡️ Watch Now on Website", "url": movie_url}]
-            ]
-        }
+            # শুধুমাত্র ওয়েবসাইটের জন্য বাটন
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": "➡️ Watch / Download on Website", "url": movie_url}]
+                ]
+            }
 
         # Telegram API-এর জন্য পেলোড প্রস্তুত করা
         api_url = f"{TELEGRAM_API_URL}/sendPhoto"
@@ -143,15 +164,25 @@ def send_notification_to_channel(movie_data):
             'photo': poster_url,
             'caption': caption,
             'parse_mode': 'Markdown',
-            'reply_markup': json.dumps(keyboard)
+            'reply_markup': json.dumps(keyboard) if keyboard else None
         }
 
         # রিকোয়েস্ট পাঠানো
         response = requests.post(api_url, data=payload, timeout=15)
         response.raise_for_status()
 
-        if response.json().get('ok'):
-            print(f"SUCCESS: Notification sent to channel {NOTIFICATION_CHANNEL_ID} for '{title}'.")
+        response_data = response.json()
+        if response_data.get('ok'):
+            print(f"SUCCESS: Notification sent for '{title}'.")
+            
+            # যদি কন্টেন্ট ট্রেন্ডিং হয় এবং Coming Soon না হয়, তাহলে মেসেজটি পিন করুন
+            if movie_data.get('is_trending') and not is_coming_soon:
+                message_id = response_data['result']['message_id']
+                pin_url = f"{TELEGRAM_API_URL}/pinChatMessage"
+                pin_payload = {'chat_id': NOTIFICATION_CHANNEL_ID, 'message_id': message_id}
+                pin_response = requests.post(pin_url, json=pin_payload)
+                if pin_response.json().get('ok'):
+                    print(f"SUCCESS: Message {message_id} pinned in the channel.")
         else:
             print(f"ERROR: Failed to send notification. Telegram API response: {response.text}")
 
