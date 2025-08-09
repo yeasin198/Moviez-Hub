@@ -836,6 +836,7 @@ def parse_filename(filename):
     
     return {'type': 'movie', 'title': final_title, 'year': year, 'languages': languages} if final_title else None
 
+# ----------------- [START] CORRECTED FUNCTION [START] -----------------
 def get_tmdb_details_from_api(title, content_type, year=None):
     if not TMDB_API_KEY:
         print("ERROR: TMDB_API_KEY is not set.")
@@ -847,8 +848,11 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         print(f"INFO: Searching TMDb for: '{query_title}' (Type: {search_type}, Year: {year})")
         try:
             search_url = f"https://api.themoviedb.org/3/search/{search_type}?api_key={TMDB_API_KEY}&query={requests.utils.quote(query_title)}"
+            
+            # --- সমাধান এখানে ---
+            # মুভির জন্য সঠিক প্যারামিটার 'primary_release_year' ব্যবহার করা হয়েছে।
             if year and search_type == "movie":
-                search_url += f"&year={year}"
+                search_url += f"&primary_release_year={year}"
             
             search_res = requests.get(search_url, timeout=10)
             search_res.raise_for_status()
@@ -884,6 +888,7 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         
     if not tmdb_data: print(f"WARNING: TMDb search found no results for '{title}' after all attempts.")
     return tmdb_data
+# ----------------- [END] CORRECTED FUNCTION [END] -----------------
 
 def process_movie_list(movie_list):
     return [{**item, '_id': str(item['_id'])} for item in movie_list]
