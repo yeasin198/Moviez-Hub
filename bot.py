@@ -486,15 +486,16 @@ detail_html = """
         <div class="episode-section">
           <h3 class="section-title">Episodes & Seasons</h3>
           
-          {# --- Season Packs --- #}
+          <!-- [START] MODIFIED SECTION: Season Packs with Quality -->
           {% if movie.season_packs %}
-            {% for pack in movie.season_packs | sort(attribute='season') %}
+            {% for pack in movie.season_packs | sort(attribute='quality') | sort(attribute='season') %}
               <div class="episode-item" style="background-color: #3e1a1a;">
-                <span class="episode-title">Complete Season {{ pack.season }} Pack</span>
-                <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_S{{ pack.season }}" class="episode-button" style="background-color: var(--netflix-red);"><i class="fas fa-box-open"></i> Get Season Pack</a>
+                <span class="episode-title">Complete Season {{ pack.season }} Pack ({{ pack.quality }})</span>
+                <a href="https://t.me/{{ bot_username }}?start={{ movie._id }}_S{{ pack.season }}_{{ pack.quality }}" class="episode-button" style="background-color: var(--netflix-red);"><i class="fas fa-box-open"></i> Get Season Pack</a>
               </div>
             {% endfor %}
           {% endif %}
+          <!-- [END] MODIFIED SECTION -->
 
           {# --- Individual Episodes --- #}
           {% if movie.episodes %}
@@ -682,15 +683,18 @@ button[type="submit"], .add-btn { background: var(--netflix-red); color: white; 
     <div id="episode_fields" style="display: none;">
       <h3>Season Packs</h3>
       <div id="season_packs_container">
+        <!-- [START] MODIFIED SECTION: Edit form for Season Packs with Quality -->
         {% if movie.type == 'series' and movie.season_packs %}
           {% for pack in movie.season_packs | sort(attribute='season') %}
           <div class="dynamic-item">
             <div class="form-group"><label>Season Number:</label><input type="number" name="pack_season[]" value="{{ pack.season }}" required /></div>
+            <div class="form-group"><label>Quality (e.g., 720p):</label><input type="text" name="pack_quality[]" value="{{ pack.quality }}" required /></div>
             <div class="form-group"><label>Telegram Message ID:</label><input type="number" name="pack_message_id[]" value="{{ pack.message_id }}" required /></div>
             <button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Pack</button>
           </div>
           {% endfor %}
         {% endif %}
+        <!-- [END] MODIFIED SECTION -->
       </div>
       <button type="button" onclick="addSeasonPackField()" class="add-btn">Add Season Pack</button>
       <hr style="margin: 20px 0;">
@@ -719,7 +723,17 @@ button[type="submit"], .add-btn { background: var(--netflix-red); color: white; 
     function toggleFields() { var isSeries = document.getElementById('content_type').value === 'series'; document.getElementById('episode_fields').style.display = isSeries ? 'block' : 'none'; document.getElementById('movie_fields').style.display = isSeries ? 'none' : 'block'; }
     function addTelegramFileField() { const c = document.getElementById('telegram_files_container'); const d = document.createElement('div'); d.className = 'dynamic-item'; d.innerHTML = `<div class="form-group"><label>Quality (e.g., 720p):</label><input type="text" name="telegram_quality[]" required /></div><div class="form-group"><label>Message ID:</label><input type="number" name="telegram_message_id[]" required /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove</button>`; c.appendChild(d); }
     function addEpisodeField() { const c = document.getElementById('episodes_container'); const d = document.createElement('div'); d.className = 'dynamic-item'; d.innerHTML = `<div class="form-group"><label>Season Number:</label><input type="number" name="episode_season[]" value="1" required /></div><div class="form-group"><label>Episode Number:</label><input type="number" name="episode_number[]" required /></div><div class="form-group"><label>Episode Title:</label><input type="text" name="episode_title[]" /></div><hr><p><b>Provide ONE of the following:</b></p><div class="form-group"><label>Telegram Message ID:</label><input type="number" name="episode_message_id[]" /></div><p><b>OR</b> Watch Link:</p><div class="form-group"><label>Watch Link (Embed):</label><input type="url" name="episode_watch_link[]" /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Episode</button>`; c.appendChild(d); }
-    function addSeasonPackField() { const c = document.getElementById('season_packs_container'); const d = document.createElement('div'); d.className = 'dynamic-item'; d.innerHTML = `<div class="form-group"><label>Season Number:</label><input type="number" name="pack_season[]" required /></div><div class="form-group"><label>Telegram Message ID:</label><input type="number" name="pack_message_id[]" required /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Pack</button>`; c.appendChild(d); }
+    
+    // [START] MODIFIED SECTION: JavaScript function to add pack fields with quality
+    function addSeasonPackField() { 
+        const c = document.getElementById('season_packs_container'); 
+        const d = document.createElement('div'); 
+        d.className = 'dynamic-item'; 
+        d.innerHTML = `<div class="form-group"><label>Season Number:</label><input type="number" name="pack_season[]" required /></div><div class="form-group"><label>Quality (e.g., 720p):</label><input type="text" name="pack_quality[]" required /></div><div class="form-group"><label>Telegram Message ID:</label><input type="number" name="pack_message_id[]" required /></div><button type="button" onclick="this.parentElement.remove()" class="delete-btn">Remove Pack</button>`; 
+        c.appendChild(d); 
+    }
+    // [END] MODIFIED SECTION
+
     document.addEventListener('DOMContentLoaded', toggleFields);
   </script>
 </body></html>
@@ -747,10 +761,11 @@ textarea { resize: vertical; min-height: 120px; } button[type="submit"] { backgr
 # --- Helper Functions ---
 # ======================================================================
 
+# [START] MODIFIED SECTION: parse_filename function updated to detect quality in season packs
 def parse_filename(filename):
     """
     Final, most robust version of the filename parser.
-    It can now detect complete season packs and individual episodes more accurately.
+    It can now detect complete season packs (with quality) and individual episodes more accurately.
     """
     LANGUAGE_MAP = {
         'hindi': 'Hindi', 'hin': 'Hindi', 'english': 'English', 'eng': 'English',
@@ -763,6 +778,7 @@ def parse_filename(filename):
         'multi audio': ['Multi Audio']
     }
     JUNK_KEYWORDS = [
+        # Quality keywords are now handled separately, so we can keep them here for title cleaning
         '1080p', '720p', '480p', '2160p', '4k', 'uhd', 'web-dl', 'webdl', 'webrip',
         'brrip', 'bluray', 'dvdrip', 'hdrip', 'hdcam', 'camrip', 'hdts', 'x264',
         'x265', 'hevc', 'avc', 'aac', 'ac3', 'dts', '5.1', '7.1', 'final', 'uncut',
@@ -785,11 +801,14 @@ def parse_filename(filename):
                 found_languages.append(lang_name)
     languages = sorted(list(set(found_languages))) if found_languages else []
 
+    # --- Quality Detection ---
+    quality_match = re.search(r'\b(\d{3,4}p)\b', processed_name, re.I)
+    quality = quality_match.group(1) if quality_match else "HD"
+
     # --- Season Pack Detection ---
     season_pack_match = re.search(r'^(.*?)[\s\.]*(?:S|Season)[\s\.]?(\d{1,2})', processed_name, re.I)
     if season_pack_match:
         text_after_season = processed_name[season_pack_match.end():].lower()
-        # A season pack if it contains pack keywords OR doesn't contain episode identifiers
         is_pack = any(keyword in text_after_season for keyword in SEASON_PACK_KEYWORDS) or not re.search(r'\be\d', text_after_season)
 
         if is_pack:
@@ -801,7 +820,7 @@ def parse_filename(filename):
             final_title = ' '.join(title.split()).title()
             
             if final_title:
-                return {'type': 'series_pack', 'title': final_title, 'season': season_num, 'languages': languages}
+                return {'type': 'series_pack', 'title': final_title, 'season': season_num, 'quality': quality, 'languages': languages}
 
     # --- Episodic Detection ---
     series_patterns = [
@@ -834,9 +853,10 @@ def parse_filename(filename):
         temp_title = re.sub(r'\b' + re.escape(junk) + r'\b', '', temp_title, flags=re.I)
     final_title = ' '.join(temp_title.split()).title()
     
-    return {'type': 'movie', 'title': final_title, 'year': year, 'languages': languages} if final_title else None
+    # For movies, we still use the general quality detection
+    return {'type': 'movie', 'title': final_title, 'year': year, 'quality': quality, 'languages': languages} if final_title else None
+# [END] MODIFIED SECTION
 
-# ----------------- [START] CORRECTED FUNCTION [START] -----------------
 def get_tmdb_details_from_api(title, content_type, year=None):
     if not TMDB_API_KEY:
         print("ERROR: TMDB_API_KEY is not set.")
@@ -849,8 +869,6 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         try:
             search_url = f"https://api.themoviedb.org/3/search/{search_type}?api_key={TMDB_API_KEY}&query={requests.utils.quote(query_title)}"
             
-            # --- সমাধান এখানে ---
-            # মুভির জন্য সঠিক প্যারামিটার 'primary_release_year' ব্যবহার করা হয়েছে।
             if year and search_type == "movie":
                 search_url += f"&primary_release_year={year}"
             
@@ -888,7 +906,6 @@ def get_tmdb_details_from_api(title, content_type, year=None):
         
     if not tmdb_data: print(f"WARNING: TMDb search found no results for '{title}' after all attempts.")
     return tmdb_data
-# ----------------- [END] CORRECTED FUNCTION [END] -----------------
 
 def process_movie_list(movie_list):
     return [{**item, '_id': str(item['_id'])} for item in movie_list]
@@ -1006,6 +1023,7 @@ def save_ads():
     settings.update_one({}, {"$set": ad_codes}, upsert=True)
     return redirect(url_for('admin'))
 
+# [START] MODIFIED SECTION: edit_movie function to handle season packs with quality
 @app.route('/edit_movie/<movie_id>', methods=["GET", "POST"])
 @requires_auth
 def edit_movie(movie_id):
@@ -1041,12 +1059,19 @@ def edit_movie(movie_id):
             movies.update_one({"_id": obj_id}, {"$set": update_data, "$unset": {"episodes": "", "season_packs": ""}})
         else: # series
             update_data["episodes"] = [{"season": int(s), "episode_number": int(e), "title": t, "watch_link": w or None, "message_id": int(m) if m else None} for s, e, t, w, m in zip(request.form.getlist('episode_season[]'), request.form.getlist('episode_number[]'), request.form.getlist('episode_title[]'), request.form.getlist('episode_watch_link[]'), request.form.getlist('episode_message_id[]'))]
-            update_data["season_packs"] = [{"season": int(s), "message_id": int(mid)} for s, mid in zip(request.form.getlist('pack_season[]'), request.form.getlist('pack_message_id[]')) if s and mid]
+            
+            update_data["season_packs"] = [
+                {"season": int(s), "quality": q, "message_id": int(mid)} 
+                for s, q, mid in zip(request.form.getlist('pack_season[]'), request.form.getlist('pack_quality[]'), request.form.getlist('pack_message_id[]')) 
+                if s and q and mid
+            ]
+            
             movies.update_one({"_id": obj_id}, {"$set": update_data, "$unset": {"links": "", "watch_link": "", "files": ""}})
         
         return redirect(url_for('admin'))
 
     return render_template_string(edit_html, movie=movie_obj)
+# [END] MODIFIED SECTION
 
 
 @app.route('/delete_movie/<movie_id>')
@@ -1089,6 +1114,7 @@ def delete_feedback(feedback_id):
     return redirect(url_for('admin'))
 
 
+# [START] MODIFIED SECTION: Fully updated telegram_webhook function
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     data = request.get_json()
@@ -1113,85 +1139,81 @@ def telegram_webhook():
 
         tmdb_data = get_tmdb_details_from_api(parsed_info['title'], parsed_info['type'], parsed_info.get('year'))
 
-        if tmdb_data and tmdb_data.get("tmdb_id"):
-            print(f"INFO: TMDb data found for '{tmdb_data['title']}'. Processing with full details.")
-            tmdb_id = tmdb_data.get("tmdb_id")
-            existing_content = movies.find_one({"tmdb_id": tmdb_id})
-            
-            update_doc = {"$set": tmdb_data}
-            if parsed_info.get('languages'):
-                update_doc["$addToSet"] = {"languages": {"$each": parsed_info['languages']}}
+        # Function to create or find content entry
+        def get_or_create_content_entry(tmdb_details, parsed_details):
+            if tmdb_details and tmdb_details.get("tmdb_id"):
+                print(f"INFO: TMDb data found for '{tmdb_details['title']}'. Processing with full details.")
+                tmdb_id = tmdb_details.get("tmdb_id")
+                existing_entry = movies.find_one({"tmdb_id": tmdb_id})
+                if not existing_entry:
+                    base_doc = {
+                        **tmdb_details, "type": "movie" if parsed_details['type'] == 'movie' else "series",
+                        "languages": [], "episodes": [], "season_packs": [], "files": [],
+                        "is_trending": False, "is_coming_soon": False
+                    }
+                    movies.insert_one(base_doc)
+                    newly_created_doc = movies.find_one({"tmdb_id": tmdb_id})
+                    send_notification_to_channel(newly_created_doc)
+                    return newly_created_doc
+                return existing_entry
+            else:
+                print(f"WARNING: TMDb data not found for '{parsed_details['title']}'. Using/Creating a placeholder.")
+                existing_entry = movies.find_one({
+                    "title": {"$regex": f"^{re.escape(parsed_details['title'])}$", "$options": "i"}, 
+                    "tmdb_id": None
+                })
+                if not existing_entry:
+                    shell_doc = {
+                        "title": parsed_details['title'], "type": "movie" if parsed_details['type'] == 'movie' else "series",
+                        "poster": PLACEHOLDER_POSTER, "overview": "Details will be updated soon.",
+                        "release_date": None, "genres": [], "vote_average": 0, "trailer_key": None, "tmdb_id": None,
+                        "languages": [], "episodes": [], "season_packs": [], "files": [],
+                        "is_trending": False, "is_coming_soon": False
+                    }
+                    movies.insert_one(shell_doc)
+                    newly_created_doc = movies.find_one({"_id": shell_doc['_id']})
+                    send_notification_to_channel(newly_created_doc)
+                    return newly_created_doc
+                return existing_entry
 
-            if not existing_content:
-                base_doc = {
-                    **tmdb_data,
-                    "type": "movie" if parsed_info['type'] == 'movie' else "series",
-                    "languages": parsed_info.get('languages', []), "episodes": [], "season_packs": [], "files": [],
-                    "is_trending": False, "is_coming_soon": False
-                }
-                movies.insert_one(base_doc)
-                newly_created_doc = movies.find_one({"tmdb_id": tmdb_data.get("tmdb_id")})
-                send_notification_to_channel(newly_created_doc) 
-                existing_content = newly_created_doc
-            
-            if parsed_info['type'] == 'movie':
-                quality = re.search(r'(\d{3,4}p)', filename, re.I).group(1) if re.search(r'(\d{3,4}p)', filename, re.I) else "HD"
-                new_file = {"quality": quality, "message_id": post['message_id']}
-                movies.update_one({"_id": existing_content['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
-                update_doc["$push"] = {"files": new_file}
-            elif parsed_info['type'] == 'series_pack':
-                new_pack = {"season": parsed_info['season'], "message_id": post['message_id']}
-                movies.update_one({"_id": existing_content['_id']}, {"$pull": {"season_packs": {"season": new_pack['season']}}})
-                update_doc["$push"] = {"season_packs": new_pack}
-            elif parsed_info['type'] == 'series':
-                new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id']}
-                movies.update_one({"_id": existing_content['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
-                update_doc["$push"] = {"episodes": new_episode}
-            
-            movies.update_one({"_id": existing_content['_id']}, update_doc)
-            print(f"SUCCESS: Full entry for '{tmdb_data['title']}' has been created/updated.")
+        content_entry = get_or_create_content_entry(tmdb_data, parsed_info)
+        if not content_entry:
+            print("FATAL: Could not get or create a content entry.")
+            return jsonify(status="error", reason="db_entry_failed")
 
-        else:
-            print(f"WARNING: TMDb data not found for '{parsed_info['title']}'. Creating a placeholder entry.")
-            
-            existing_placeholder = movies.find_one({
-                "title": {"$regex": f"^{re.escape(parsed_info['title'])}$", "$options": "i"}, 
-                "tmdb_id": None
-            })
+        update_op = {}
+        if parsed_info.get('languages'):
+            update_op["$addToSet"] = {"languages": {"$each": parsed_info['languages']}}
 
-            if not existing_placeholder:
-                shell_doc = {
-                    "title": parsed_info['title'],
-                    "type": "movie" if parsed_info['type'] == 'movie' else "series",
-                    "poster": PLACEHOLDER_POSTER,
-                    "overview": "Details for this content are not yet available. It will be updated soon.",
-                    "release_date": None, "genres": [], "vote_average": 0, "trailer_key": None, "tmdb_id": None,
-                    "languages": parsed_info.get('languages', []), "episodes": [], "season_packs": [], "files": [],
-                    "is_trending": False, "is_coming_soon": False
-                }
-                movies.insert_one(shell_doc)
-                newly_created_doc = movies.find_one({"_id": shell_doc['_id']})
-                send_notification_to_channel(newly_created_doc)
-                existing_placeholder = newly_created_doc
-            
-            update_op = {}
-            if parsed_info['type'] == 'movie':
-                quality = re.search(r'(\d{3,4}p)', filename, re.I).group(1) if re.search(r'(\d{3,4}p)', filename, re.I) else "HD"
-                new_file = {"quality": quality, "message_id": post['message_id']}
-                movies.update_one({"_id": existing_placeholder['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
-                update_op["$push"] = {"files": new_file}
-            elif parsed_info['type'] == 'series_pack':
-                new_pack = {"season": parsed_info['season'], "message_id": post['message_id']}
-                movies.update_one({"_id": existing_placeholder['_id']}, {"$pull": {"season_packs": {"season": new_pack['season']}}})
-                update_op["$push"] = {"season_packs": new_pack}
-            elif parsed_info['type'] == 'series':
-                new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id']}
-                movies.update_one({"_id": existing_placeholder['_id']}, {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}})
-                update_op["$push"] = {"episodes": new_episode}
+        # Logic for adding files/episodes/packs
+        if parsed_info['type'] == 'movie':
+            quality = parsed_info.get('quality', 'HD')
+            new_file = {"quality": quality, "message_id": post['message_id']}
+            # Pull old entry with the same quality before pushing new one
+            movies.update_one({"_id": content_entry['_id']}, {"$pull": {"files": {"quality": new_file['quality']}}})
+            update_op.setdefault("$push", {})["files"] = new_file
+        
+        elif parsed_info['type'] == 'series_pack':
+            new_pack = {"season": parsed_info['season'], "quality": parsed_info['quality'], "message_id": post['message_id']}
+            # Pull old entry with the same season AND quality
+            movies.update_one(
+                {"_id": content_entry['_id']}, 
+                {"$pull": {"season_packs": {"season": new_pack['season'], "quality": new_pack['quality']}}}
+            )
+            update_op.setdefault("$push", {})["season_packs"] = new_pack
 
-            if update_op:
-                movies.update_one({"_id": existing_placeholder['_id']}, update_op)
-            print(f"SUCCESS: Placeholder entry for '{parsed_info['title']}' has been created/updated.")
+        elif parsed_info['type'] == 'series':
+            new_episode = {"season": parsed_info['season'], "episode_number": parsed_info['episode'], "message_id": post['message_id']}
+            # Pull old entry with the same season and episode number
+            movies.update_one(
+                {"_id": content_entry['_id']},
+                {"$pull": {"episodes": {"season": new_episode['season'], "episode_number": new_episode['episode_number']}}}
+            )
+            update_op.setdefault("$push", {})["episodes"] = new_episode
+
+        if update_op:
+            movies.update_one({"_id": content_entry['_id']}, update_op)
+            print(f"SUCCESS: Entry for '{content_entry['title']}' has been updated.")
 
     elif 'message' in data:
         message = data['message']
@@ -1209,21 +1231,23 @@ def telegram_webhook():
                     message_to_copy_id = None
                     file_info_text = ""
                     
-                    if len(payload_parts) == 2 and payload_parts[1].startswith('S'): # Season Pack
-                        season_num = int(payload_parts[1][1:])
-                        pack = next((p for p in content.get('season_packs', []) if p.get('season') == season_num), None)
+                    if len(payload_parts) == 3 and payload_parts[1].startswith('S'): # Season Pack: docId_S<season>_<quality>
+                        season_num_str = payload_parts[1][1:]
+                        season_num = int(season_num_str)
+                        quality = payload_parts[2]
+                        pack = next((p for p in content.get('season_packs', []) if p.get('season') == season_num and p.get('quality') == quality), None)
                         if pack:
                             message_to_copy_id = pack.get('message_id')
-                            file_info_text = f"Complete Season {season_num}"
-                    
-                    elif content.get('type') == 'series' and len(payload_parts) == 3: # Episodic
+                            file_info_text = f"Complete Season {season_num} ({quality})"
+
+                    elif content.get('type') == 'series' and len(payload_parts) == 3: # Episodic: docId_<season>_<episode>
                         s_num, e_num = int(payload_parts[1]), int(payload_parts[2])
                         episode = next((ep for ep in content.get('episodes', []) if ep.get('season') == s_num and ep.get('episode_number') == e_num), None)
                         if episode: 
                             message_to_copy_id = episode.get('message_id')
                             file_info_text = f"S{s_num:02d}E{e_num:02d}"
 
-                    elif content.get('type') == 'movie' and len(payload_parts) == 2: # Movie
+                    elif content.get('type') == 'movie' and len(payload_parts) == 2: # Movie: docId_<quality>
                         quality = payload_parts[1]
                         file = next((f for f in content.get('files', []) if f.get('quality') == quality), None)
                         if file: 
@@ -1261,6 +1285,7 @@ def telegram_webhook():
                      requests.get(f"{TELEGRAM_API_URL}/sendMessage", params={'chat_id': chat_id, 'text': welcome_message})
 
     return jsonify(status='ok')
+# [END] MODIFIED SECTION
 
 
 @app.route('/notify/<movie_id>')
